@@ -21,8 +21,8 @@ class Protein_Structure:
     # greeted = set()
     # for path in sys.argv[1:]:
     #     try:
-    #         doc = gemmi.cif.read_file(path)  # copy all the data from mmCIF file
-    #         block = doc.sole_block()  # mmCIF has exactly one block
+    #         doc = gemmi.cif.read_file(path)  # copy all the data from cif file
+    #         block = doc.sole_block()  # cif has exactly one block
     #         for element in block.find_loop("_atom_site.type_symbol"):
     #             if element not in greeted:
     #                 print("Hello " + element)
@@ -62,8 +62,8 @@ class Protein_Structure:
     # def iterate_hierarchy_levels(self):
 
 
-file = "pdb_files/1lfg.cif"
-# file = "pdb_files/1lfg.pdb"
+file = "data/cif/1lfg.cif"
+# file = "pdb/1lfg.pdb"
 test = Protein_Structure(file)
 test.print_pipeline()
 

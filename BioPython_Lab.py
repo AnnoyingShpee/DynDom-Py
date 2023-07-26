@@ -18,7 +18,7 @@ import matplotlib.pyplot as plt
 # print(test_seq.reverse_complement())  # ACCAGTGTACT
 #
 #
-# pdb_file = "pdb_files/1lfg.pdb"
+# pdb_file = "pdb/1lfg.pdb"
 # pdb_parser = PDBParser()
 # structure = pdb_parser.get_structure("A Protein", pdb_file)
 # print(structure)
@@ -40,24 +40,6 @@ import matplotlib.pyplot as plt
 #     print(seq_record.id)
 #     print(repr(seq_record.seq))
 #     print(len(seq_record))
-
-
-
-def calculate_dihedral_angles(atoms):
-    # Calculate dihedral angles using atom positions
-    dihedral_angles = []
-    for a1, a2, a3, a4 in zip(atoms[:-3], atoms[1:-2], atoms[2:-1], atoms[3:]):
-        dihedral_angles.append(calc_dihedral(a1.get_vector(), a2.get_vector(), a3.get_vector(), a4.get_vector()))
-    return dihedral_angles
-
-
-def plot_dihedral_angles(dihedral_angles):
-    # Plot dihedral angles
-    plt.plot(dihedral_angles)
-    plt.xlabel("Residue Index")
-    plt.ylabel("Dihedral Angle (degrees)")
-    plt.title("Protein Conformation")
-    plt.show()
 
 
 def main():
@@ -83,12 +65,6 @@ def main():
                 if "CA" in residue:
                     atoms.append(residue["CA"])
 
-    # Calculate dihedral angles
-    dihedral_angles = calculate_dihedral_angles(atoms)
-    print(dihedral_angles)
-
-    # Display protein conformations
-    # plot_dihedral_angles(dihedral_angles)
 
 
 if __name__ == "__main__":

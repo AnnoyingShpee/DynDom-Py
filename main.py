@@ -7,12 +7,10 @@ from Bio.PDB import PDBParser  # For working with protein structures (PDB files)
 from Bio.PDB import PDBParser, PDBIO, PDBList
 from Bio.PDB.vectors import calc_dihedral
 
-pdbl = PDBList(pdb="data/pdb")
+pdbl = PDBList()
 # pdbl.update_pdb()
 
 
-def calculate_angle():
-    
 
 def main():
     running = True

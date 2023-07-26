@@ -2,8 +2,8 @@ import sys
 import gemmi
 
 
-# file = "pdb_files/1lfg.cif"
-file = "pdb_files/1lfg.pdb"
+# file = "pdb/1lfg.cif"
+file = "data/pdb/1lfg.pdb"
 
 structure: gemmi.Structure = gemmi.read_structure(file)
 unit_cell: gemmi.Structure.cell = structure.cell
