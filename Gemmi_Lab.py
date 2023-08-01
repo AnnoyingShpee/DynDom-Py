@@ -1,6 +1,17 @@
 import sys
 import gemmi
-
+from Bio import SeqIO  # For working with sequence data (e.g., DNA, RNA, protein sequences)
+from Bio.Seq import Seq  # For working with biological sequences
+from Bio.SeqUtils import GC  # For calculating GC content
+from Bio import AlignIO  # For handling sequence alignments
+from Bio.PDB import PDBParser, PDBIO, PDBList  # For working with protein structures (PDB files)
+from Bio.PDB.vectors import calc_dihedral
+from Bio.PDB.Chain import Chain
+from Bio.PDB.internal_coords import *
+from Bio.PDB.PICIO import write_PIC, read_PIC, read_PIC_seq
+from Bio.PDB.ic_rebuild import write_PDB, IC_duplicate, structure_rebuild_test
+from Bio.PDB.SCADIO import write_SCAD
+from Bio.SeqRecord import SeqRecord
 
 # file = "pdb/1lfg.cif"
 file = "data/pdb/1lfg.pdb"
@@ -22,5 +33,7 @@ for model in structure:  # gemmi.Model
             # print(type(residue))
             for atom in residue:  # gemmi.Atom
                 # atomic: gemmi.Atom = atom
-                # print(atomic.pos)
+                # print(atomic.pos)  # x, y, z coordinates as gemmi.Position
+                # print(atomic.name)  # Backbone atoms as string
+                # print(atomic.element)  # Atoms as gemmi.Element objects
                 print(atom)

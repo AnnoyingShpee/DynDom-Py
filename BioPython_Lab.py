@@ -3,9 +3,15 @@ from Bio import SeqIO  # For working with sequence data (e.g., DNA, RNA, protein
 from Bio.Seq import Seq  # For working with biological sequences
 from Bio.SeqUtils import GC  # For calculating GC content
 from Bio import AlignIO  # For handling sequence alignments
-from Bio.PDB import PDBParser  # For working with protein structures (PDB files)
-from Bio.PDB import PDBParser, PDBIO, PDBList
+from Bio.PDB import PDBParser, PDBIO, PDBList  # For working with protein structures (PDB files)
 from Bio.PDB.vectors import calc_dihedral
+from Bio.PDB.Chain import Chain
+from Bio.PDB.internal_coords import *
+from Bio.PDB.PICIO import write_PIC, read_PIC, read_PIC_seq
+from Bio.PDB.ic_rebuild import write_PDB, IC_duplicate, structure_rebuild_test
+from Bio.PDB.SCADIO import write_SCAD
+from Bio.SeqRecord import SeqRecord
+
 import matplotlib.pyplot as plt
 
 
@@ -53,17 +59,6 @@ def main():
     # Parse PDB file
     parser = PDBParser()
     structure = parser.get_structure(pdb_code, pdb_filename)
-
-    # Select the first model (often, there's only one model)
-    model = structure[0]
-
-    # Collect alpha-carbon atoms for dihedral angle calculation
-    atoms = []
-    for model in structure:
-        for chain in model:
-            for residue in chain:
-                if "CA" in residue:
-                    atoms.append(residue["CA"])
 
 
 
