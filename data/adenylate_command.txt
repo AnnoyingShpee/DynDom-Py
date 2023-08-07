@@ -6,11 +6,11 @@
 #
 # GIVE A TITLE (ALSO USED FOR NAMING OUTPUT FILES)
 #
-title=1adgA-1lfgB.w5
+title=1lfgA-2lfhA.w5
 #
 # WRITE FILENAME FOR 1ST CHAIN
 #
-filename1=1adg.pdb
+filename1=1cts.pdb
 #
 # ONE LETTER CODE FOR 1ST CHAIN ID IF IT EXISTS, OTHERWISE LEAVE BLANK
 #
@@ -18,11 +18,11 @@ chain1id=A
 #
 # WRITE FILENAME FOR 2ND CHAIN, MAY BE SAME AS FIRST
 #
-filename2=1lfg.pdb
+filename2=2cts.pdb
 #
 # ONE LETTER CODE FOR 2ND CHAIN ID 
 #
-chain2id=B
+chain2id=A
 #
 # WINDOW LENGTH IN NUMBER OF RESIDUES (DEFAULT 5 RESIDUES)
 #

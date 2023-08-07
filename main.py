@@ -1,10 +1,7 @@
 from Operations import Engine
 
-command_file = "data/adenylate_command.txt"
-data_path = "data/pdb/"
-protein_structure_array = ["N", "CA", "C", "O", "S", "N", "CA", "C", "O", "H", "H"]
-protein_structure_string = "NCACOSNCACOHH"
-
+command_file_path = "data/adenylate_command.txt"
+pdb_path = "data/pdb/"
 
 def read_command_file(file_path: str):
     new_dict = {}
@@ -33,19 +30,17 @@ def array_sliding_window(protein_structure, window_size: int):
         print(protein_structure[i:i+window_size])
 
 
-
-
-
 def main():
-    command_dict = read_command_file(command_file)
-    # print(command_dict)
-    # array_sliding_window(protein_structure_array, int(command_dict['window']))
+    # Read command file to get parameters ( Protein PDB file names, protein chains, window size, domain size, ratio )
+    param_dict = read_command_file(command_file_path)
+    # Concatenate PDB file names with path
+    file_path_1 = pdb_path + param_dict["filename1"]
+    file_path_2 = pdb_path + param_dict["filename2"]
+    # Initialise Engine object
+    engine = Engine(file_path_1, file_path_2, param_dict)
+    # Run the Engine
+    engine.run()
 
-    file_path_1 = data_path + command_dict["filename1"]
-    file_path_2 = data_path + command_dict["filename2"]
-
-    engine = Engine(file_path_1, file_path_2, command_dict)
-    # print(engine.protein_1)
 
 
     # running = True
