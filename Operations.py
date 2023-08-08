@@ -1,20 +1,10 @@
 import numpy as np
-import scipy as sp
 import gemmi
-from protein.Protein import Protein
-import math
-
-# rotation_matrix_x = np.array([[1,     0,              0],
-#                               [0,     math.cos(),     -math.sin()],
-#                               [0,     math.sin(),     math.cos()]])
-#
-# rotation_matrix_y = np.array([[math.cos(),    0,      math.sin()],
-#                               [0,             1,      0],
-#                               [-math.sin(),   0,      math.cos()]])
-#
-# rotation_matrix_z = np.array([[math.cos(),    -math.sin(),        0],
-#                               [math.sin(),    math.cos(),         0],
-#                               [0,             0,                  1]])
+import difflib
+import FileMngr
+import KMeans
+import Clusterer
+from Protein import Protein
 
 
 class Engine:
@@ -30,7 +20,8 @@ class Engine:
         # Initialise proteins
         self.protein_1: Protein = Protein(first_pdb, self.parameters["chain1id"])
         self.protein_2: Protein = Protein(second_pdb, self.parameters["chain2id"])
-        self.superimpose_results = np.array([])
+        self.residues_superimpose_results = np.array([])
+        self.chain_superimpose_result = None
         self.slide_window_result_1, self.slide_window_result_2 = np.array([]), np.array([])
         self.min_coordinates = []
         self.max_coordinates = []
@@ -40,9 +31,17 @@ class Engine:
         self.lines = np.array([])
 
     def run(self):
-        self.superimpose_residues()
-        self.sliding_window_on_backbone_atoms()
-        self.superimpose_polymers()
+        if self.check_chain_compatibility() > 0.4:
+            self.superimpose_residues()
+            self.sliding_window_on_backbone_atoms()
+            self.superimpose_chains()
+
+        # FileMngr.write_pdb_file()
+        # FileMngr.write_pymol_file()
+        # else:
+        #     print("Sequences are too different to compare")
+        #     return False
+
         # self.protein_1.print_chain()
         # self.protein_2.print_chain()
         # print(f"Superimposed results shape = {self.superimpose_results.shape}")
@@ -58,7 +57,16 @@ class Engine:
         # print(f"slide_window_result_1[0:6] = {self.slide_window_result_1[0:6]}")
         # self.center_1, self.center_2 = self.superimpose_chains()
         # self.slide_window_result_1, self.slide_window_result_2 = self.sliding_window_on_backbone_atoms()
-        return
+        return True
+
+    def check_chain_compatibility(self):
+        residues_1 = [res.name for res in self.protein_1.chain_residues]
+        residues_2 = [res.name for res in self.protein_2.chain_residues]
+
+        sm = difflib.SequenceMatcher(None, residues_1, residues_2)
+        # print(f"SM = {sm.get_matching_blocks()}")
+        # print(f"Ratio = {sm.ratio()}")
+        return sm.ratio()
 
     def superimpose_residues(self):
         backbone_1 = self.protein_1.chain_backbone_atoms
@@ -70,24 +78,23 @@ class Engine:
             for i in range(backbone_1.shape[0]):
                 pos_1 = [a.pos for a in backbone_1[i][:]]
                 pos_2 = [a.pos for a in backbone_2[i][:]]
-                self.superimpose_results = np.append(self.superimpose_results, gemmi.superpose_positions(pos_1, pos_2))
+                self.residues_superimpose_results = np.append(self.residues_superimpose_results, gemmi.superpose_positions(pos_1, pos_2))
         except Exception as e:
             print(e)
             return False
         return True
 
-    def superimpose_polymers(self):
+    def superimpose_chains(self):
         polymer_1 = self.protein_1.chain_residues
         polymer_2 = self.protein_2.chain_residues
         ptype = polymer_1.check_polymer_type()
-        # print(ptype)
-        sup: gemmi.SupResult = gemmi.calculate_superposition(polymer_1, polymer_2, ptype, gemmi.SupSelect.MainChain)
-        print(f"RMSD =                  {sup.rmsd}")
-        print(f"Count =                 {sup.count}")
-        print(f"Center 1 =              {sup.center1}")
-        print(f"Center 2 =              {sup.center2}")
-        print(f"Translation Vector =    {sup.transform.vec}")
-        print(f"Rotation Matrix =       {sup.transform.mat}")
+        self.chain_superimpose_result: gemmi.SupResult = gemmi.calculate_superposition(polymer_1, polymer_2, ptype, gemmi.SupSelect.MainChain)
+        # print(f"RMSD =                  {self.chain_superimpose_result.rmsd}")
+        # print(f"Count =                 {self.chain_superimpose_result.count}")
+        # print(f"Center 1 =              {self.chain_superimpose_result.center1}")
+        # print(f"Center 2 =              {self.chain_superimpose_result.center2}")
+        # print(f"Translation Vector =    {self.chain_superimpose_result.transform.vec}")
+        # print(f"Rotation Matrix =       {self.chain_superimpose_result.transform.mat}")
 
 
     # Creates a 1D array of the coordinates
@@ -138,14 +145,5 @@ class Engine:
     #
     #     self.slide_window_result_1, self.slide_window_result_2 = np.array(array_1), np.array([array_2])
     #     return True
-
-    def get_rotation_vectors(self):
-        return
-
-    def write_result_file(self):
-        return
-
-    def write_pml_file(self):
-        return
 
 

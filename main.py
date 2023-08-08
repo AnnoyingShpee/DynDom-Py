@@ -1,22 +1,8 @@
+import FileMngr
 from Operations import Engine
 
 command_file_path = "data/adenylate_command.txt"
 pdb_path = "data/pdb/"
-
-def read_command_file(file_path: str):
-    new_dict = {}
-    try:
-        fr = open(file_path, "r")
-        lines = fr.readlines()
-        for line in lines:
-            if not ("#" in line):
-                line = line.replace("\n", "")
-                tokens = line.split("=")
-                new_dict[tokens[0]] = tokens[1]
-        fr.close()
-    except Exception as e:
-        print(e)
-    return new_dict
 
 
 def array_sliding_window(protein_structure, window_size: int):
@@ -32,16 +18,14 @@ def array_sliding_window(protein_structure, window_size: int):
 
 def main():
     # Read command file to get parameters ( Protein PDB file names, protein chains, window size, domain size, ratio )
-    param_dict = read_command_file(command_file_path)
+    param_dict = FileMngr.read_command_file("adenylate_command.txt")
     # Concatenate PDB file names with path
-    file_path_1 = pdb_path + param_dict["filename1"]
-    file_path_2 = pdb_path + param_dict["filename2"]
+    pdb_path_1 = pdb_path + param_dict["filename1"]
+    pdb_path_2 = pdb_path + param_dict["filename2"]
     # Initialise Engine object
-    engine = Engine(file_path_1, file_path_2, param_dict)
+    engine = Engine(pdb_path_1, pdb_path_2, param_dict)
     # Run the Engine
     engine.run()
-
-
 
     # running = True
     # while running:

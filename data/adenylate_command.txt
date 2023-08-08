@@ -6,7 +6,7 @@
 #
 # GIVE A TITLE (ALSO USED FOR NAMING OUTPUT FILES)
 #
-title=1lfgA-2lfhA.w5
+title=1ctsA-2ctsA.w5
 #
 # WRITE FILENAME FOR 1ST CHAIN
 #
