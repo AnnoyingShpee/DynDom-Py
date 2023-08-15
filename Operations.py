@@ -2,13 +2,14 @@ import numpy as np
 import gemmi
 import difflib
 import FileMngr
-import KMeans
 import Clusterer
 from Protein import Protein
+from scipy.spatial.transform import Rotation
 
 
 class Engine:
     def __init__(self, first_pdb: str, second_pdb: str, params=None):
+        # Default parameters to be used if not given input
         if params is None:
             self.parameters = {"chain1id": "A",
                                "chain2id": "A",
@@ -20,130 +21,254 @@ class Engine:
         # Initialise proteins
         self.protein_1: Protein = Protein(first_pdb, self.parameters["chain1id"])
         self.protein_2: Protein = Protein(second_pdb, self.parameters["chain2id"])
+        # Array of gemmi.SupResult objects containing superimposition information between each residue
         self.residues_superimpose_results = np.array([])
+        # A gemmi.SupResult object containing superimposition information between 2 chains
         self.chain_superimpose_result = None
+        # List of arrays of gemmi.SupResult objects containing superimposition information between each residue
+        self.slide_window_superimpose_result = np.array([])
+        # List of 2D rotation matrices
+        self.rotation_mats = np.array([])
+        # List of rotation vectors created from rotation_mats
+        self.rotation_vecs = np.array([])
         self.slide_window_result_1, self.slide_window_result_2 = np.array([]), np.array([])
-        self.min_coordinates = []
-        self.max_coordinates = []
-        self.unit_vectors = np.array([])
-        self.rotation_vectors = np.array([])
-        self.angles = np.array([])
-        self.lines = np.array([])
 
     def run(self):
-        if self.check_chain_compatibility() > 0.4:
-            self.superimpose_residues()
-            self.sliding_window_on_backbone_atoms()
-            self.superimpose_chains()
+        if self.check_chain_compatibility() > 0.4 and self.check_chain_lengths():
+            self.residues_superimpose_results = self.superimpose_residues()
+            self.slide_window_superimpose_result = self.sliding_window_superimpose()
+            self.rotation_mats = self.get_rotation_mats()
+            self.rotation_vecs = self.convert_rot_mats_to_vecs()
+            #
+            # self.chain_superimpose_result: gemmi.SupResult = self.superimpose_chains()
+            # self.print_chains_superimposed_result()
 
-        # FileMngr.write_pdb_file()
-        # FileMngr.write_pymol_file()
+            # self.slide_window_result_1, self.slide_window_result_2 = self.sliding_window_on_backbone_atoms_1d()
+            # self.slide_window_result_1, self.slide_window_result_2 = self.sliding_window_on_backbone_atoms_2d()
+            # self.print_slide_window_result()
+
+            # Clusterer.calc_k_means_sklearn(self.rotation_mats, 100)
+
+
+            # FileMngr.write_pdb_file()
+            # FileMngr.write_pymol_file()
         # else:
         #     print("Sequences are too different to compare")
         #     return False
 
-        # self.protein_1.print_chain()
+        self.protein_1.print_chain()
         # self.protein_2.print_chain()
-        # print(f"Superimposed results shape = {self.superimpose_results.shape}")
-        # for i in range(len(self.superimpose_results)):
-        #     result_obj: gemmi.SupResult = self.superimpose_results[i]
-        #     print(f"{i+1} RMSD = {result_obj.rmsd}")
-        #     print(f"    Count (Number of atoms used in each chain) = {result_obj.count}")
-        #     print(f"    Center 1 = {result_obj.center1}")
-        #     print(f"    Center 2 = {result_obj.center2}")
-        #     print(f"    Translation Vector = {result_obj.transform.vec}")
-        #     print(f"    Rotation Matrix = {result_obj.transform.mat}")
-        # print(f"slide_window_result_1 shape = {self.slide_window_result_1.shape}")
-        # print(f"slide_window_result_1[0:6] = {self.slide_window_result_1[0:6]}")
-        # self.center_1, self.center_2 = self.superimpose_chains()
-        # self.slide_window_result_1, self.slide_window_result_2 = self.sliding_window_on_backbone_atoms()
+
+        # self.print_residues_superimposed_results()
+        # self.print_chains_superimposed_result()
+
+        self.print_slide_window_superimpose_result(10)
+
+        # self.print_rotation_matrices_and_vecs()
+
         return True
 
     def check_chain_compatibility(self):
+        """
+        Checks whether the residues sequence of Protein 1 and Protein 2 are similar
+        :return: The percentage of similarity of the 2 protein residue sequences (Between 0 and 1)
+        """
         residues_1 = [res.name for res in self.protein_1.chain_residues]
         residues_2 = [res.name for res in self.protein_2.chain_residues]
-
         sm = difflib.SequenceMatcher(None, residues_1, residues_2)
         # print(f"SM = {sm.get_matching_blocks()}")
         # print(f"Ratio = {sm.ratio()}")
         return sm.ratio()
 
-    def superimpose_residues(self):
-        backbone_1 = self.protein_1.chain_backbone_atoms
-        backbone_2 = self.protein_2.chain_backbone_atoms
-        if backbone_1.shape[0] != backbone_2.shape[0]:
-            print("Chains do not have the same number of residues")
-            return False
-        try:
-            for i in range(backbone_1.shape[0]):
-                pos_1 = [a.pos for a in backbone_1[i][:]]
-                pos_2 = [a.pos for a in backbone_2[i][:]]
-                self.residues_superimpose_results = np.append(self.residues_superimpose_results, gemmi.superpose_positions(pos_1, pos_2))
-        except Exception as e:
-            print(e)
+    def check_chain_lengths(self):
+        """
+        Check if number of residues of Protein 1 and Protein 2 are the same.
+        :return:
+        """
+        if self.protein_1.chain_backbone_atoms.shape[0] != self.protein_2.chain_backbone_atoms.shape[0]:
             return False
         return True
 
+    def superimpose_residues(self):
+        """
+        Superimposes each residue of the 2 Protein structures using backbone atoms.
+        :return: List of gemmi.SupResult objects containing superimposition information
+        """
+        # Get the backbone atoms
+        backbone_1 = self.protein_1.chain_backbone_atoms
+        backbone_2 = self.protein_2.chain_backbone_atoms
+        temp = np.array([])
+        try:
+            # For each residue in the 2 proteins, superimpose the backbone atoms
+            for i in range(backbone_1.shape[0]):
+                # Get the x, y, and z coordinates of the backbone atoms (N, CA, C) of the specific residue
+                pos_1 = [a.pos for a in backbone_1[i][:]]
+                pos_2 = [a.pos for a in backbone_2[i][:]]
+                # Superimpose and append to array
+                temp = np.append(temp, gemmi.superpose_positions(pos_1, pos_2))
+        except Exception as e:
+            print(e)
+        return temp
+
     def superimpose_chains(self):
+        """
+        Superimposes the entire chain of the 2 Protein structures using the backbone atoms.
+        :return: A gemmi.SupResult object (Only 1, not a list)
+        """
         polymer_1 = self.protein_1.chain_residues
         polymer_2 = self.protein_2.chain_residues
         ptype = polymer_1.check_polymer_type()
-        self.chain_superimpose_result: gemmi.SupResult = gemmi.calculate_superposition(polymer_1, polymer_2, ptype, gemmi.SupSelect.MainChain)
-        # print(f"RMSD =                  {self.chain_superimpose_result.rmsd}")
-        # print(f"Count =                 {self.chain_superimpose_result.count}")
-        # print(f"Center 1 =              {self.chain_superimpose_result.center1}")
-        # print(f"Center 2 =              {self.chain_superimpose_result.center2}")
-        # print(f"Translation Vector =    {self.chain_superimpose_result.transform.vec}")
-        # print(f"Rotation Matrix =       {self.chain_superimpose_result.transform.mat}")
-
+        return gemmi.calculate_superposition(polymer_1, polymer_2, ptype, gemmi.SupSelect.MainChain)
 
     # Creates a 1D array of the coordinates
-    def sliding_window_on_backbone_atoms(self):
+    def sliding_window_on_backbone_atoms_1d(self):
+        """
+        Slides a window on the backbone atom chains to obtain the x, y, and z coordinates.
+        Sliding window has a step of 1 when sliding across the chains.
+        This is under the assumption that the number of residues of the 2 proteins are the same.
+        :return: 1D array of the coordinates of the windowed backbone atoms.
+        """
+        # chain_backbone_atoms is a 2D array, hence, it needs to be converted into a 1D array
+        backbone_1 = self.protein_1.chain_backbone_atoms.flatten()
+        backbone_2 = self.protein_2.chain_backbone_atoms.flatten()
+        temp_1 = np.array([])
+        temp_2 = np.array([])
+        # Get the window size
+        window_size = int(self.parameters["window"])
+        # If the total number of backbone atoms are less than the window size, no need to slide a window.
+        if len(backbone_1) <= window_size:
+            return np.array(backbone_1), np.array(backbone_2)
+        try:
+            for i in range(len(backbone_1) - window_size + 1):
+                temp_1 = np.append(temp_1, backbone_1[i:i + window_size])
+                temp_2 = np.append(temp_2, backbone_2[i:i + window_size])
+        except Exception as e:
+            print(e)
+        return temp_1, temp_2
+
+    def sliding_window_on_backbone_atoms_2d(self):
+        """
+        lides a window on the backbone atom chains to obtain the x, y, and z coordinates.
+        Sliding window has a step of 1 when sliding across the chains.
+        This is under the assumption that the number of residues of the 2 proteins are the same.
+        :return: 2D array of the coordinates [N, window_size]
+        """
+        # chain_backbone_atoms is a 2D array, hence, it needs to be converted into a 1D array
+        backbone_1 = self.protein_1.chain_backbone_atoms.flatten()
+        backbone_2 = self.protein_2.chain_backbone_atoms.flatten()
+        # Get the window size
+        window_size = int(self.parameters["window"])
+        temp_1 = []
+        temp_2 = []
+        # If the total number of backbone atoms are less than the window size, no need to slide a window.
+        if len(backbone_1) <= window_size:
+            return np.array(backbone_1), np.array(backbone_2)
+        try:
+            for i in range(len(backbone_1) - window_size + 1):
+                temp_1.append(backbone_1[i:i + window_size])
+                temp_2.append(backbone_2[i:i + window_size])
+        except Exception as e:
+            print(e)
+
+        return np.array(temp_1), np.array(temp_2)
+
+    def sliding_window_superimpose(self):
+        """
+        Slides a window on the backbone atoms to superimpose the residues.
+        This is under the assumption that the number of backbone atoms (Residues) of the 2 Proteins are the same.
+        :return:
+        """
         backbone_1 = self.protein_1.chain_backbone_atoms.flatten()
         backbone_2 = self.protein_2.chain_backbone_atoms.flatten()
         window_size = int(self.parameters["window"])
-        if len(backbone_1) != len(backbone_2):
-            print("Not the same size")
-            return False
+        superpose_results = []
 
         if len(backbone_1) <= window_size:
-            self.slide_window_result_1, self.slide_window_result_2 = np.array(backbone_1), np.array([backbone_2])
-            return True
+            try:
+                # For each residue in the 2 proteins, superimpose the backbone atoms
+                for i in range(backbone_1.shape[0]):
+                    # Get the x, y, and z coordinates of the backbone atoms (N, CA, C) of the specific residue
+                    pos_1 = [a.pos for a in backbone_1[i][:]]
+                    pos_2 = [a.pos for a in backbone_2[i][:]]
+                    # Superimpose and append to array
+                    superpose_results = np.append(superpose_results, gemmi.superpose_positions(pos_1, pos_2))
+            except Exception as e:
+                print(e)
+            return superpose_results
 
         try:
             for i in range(len(backbone_1) - window_size + 1):
-                self.slide_window_result_1 = np.append(self.slide_window_result_1, backbone_1[i:i + window_size])
-                self.slide_window_result_2 = np.append(self.slide_window_result_2, backbone_2[i:i + window_size])
+                contents_1 = backbone_1[i:i + window_size]
+                contents_2 = backbone_2[i:i + window_size]
+                pos_1 = [a.pos for a in contents_1]
+                pos_2 = [a.pos for a in contents_2]
+                superpose_results = np.append(superpose_results, gemmi.superpose_positions(pos_1, pos_2))
         except Exception as e:
             print(e)
-            return False
 
-        return True
+        return superpose_results
 
-    # # Creates a 2D array of the coordinates [N, window_size]
-    # def sliding_window_on_backbone_atoms(self):
-    #     backbone_1 = self.protein_1.chain_backbone_atoms.flatten()
-    #     backbone_2 = self.protein_2.chain_backbone_atoms.flatten()
-    #     window_size = int(self.parameters["window"])
-    #     array_1 = []
-    #     array_2 = []
-    #     if len(backbone_1) != len(backbone_2):
-    #         print("Not the same size")
-    #         return False
-    #
-    #     if len(backbone_1) <= window_size:
-    #         self.slide_window_result_1, self.slide_window_result_2 = np.array(backbone_1), np.array([backbone_2])
-    #         return True
-    #
-    #     try:
-    #         for i in range(len(backbone_1) - window_size + 1):
-    #             array_1.append(backbone_1[i:i + window_size])
-    #             array_2.append(backbone_2[i:i + window_size])
-    #     except Exception as e:
-    #         print(e)
-    #         return False
-    #
-    #     self.slide_window_result_1, self.slide_window_result_2 = np.array(array_1), np.array([array_2])
-    #     return True
+    def get_rotation_mats(self):
+        """
+        residues_superimpose_results is a list of gemmi.SupResult objects containing information of the superimposition
+        between each residue of the Proteins. This function is used to extract the numerical data of the objects for
+        KMeans clustering. Specifically, the rotation matrix.
+        :return:
+        """
+        temp = []
+        for i in range(len(self.residues_superimpose_results)):
+            matrix: gemmi.Mat33 = self.residues_superimpose_results[i].transform.mat
+            listed_mat = matrix.tolist()
+            temp.append(listed_mat)
+            # mat_1d = np.array(listed_mat).flatten()
+            # temp.append(mat_1d)
+        return np.array(temp)
+
+    def convert_rot_mats_to_vecs(self):
+        rot_mats = [Rotation.from_matrix(sr.transform.mat.tolist()) for sr in self.residues_superimpose_results]
+        return np.array([rm.as_rotvec() for rm in rot_mats])
+
+    def print_residues_superimposed_results(self, n=None):
+        if n is None or n > len(self.residues_superimpose_results):
+            n = len(self.residues_superimpose_results)
+        print(f"Superimposed residues results shape = {self.residues_superimpose_results.shape}")
+        for i in range(n):
+            result_obj: gemmi.SupResult = self.residues_superimpose_results[i]
+            print(f"{i+1} RMSD = {result_obj.rmsd}")
+            print(f"    Count (Number of atoms used in each chain) = {result_obj.count}")
+            print(f"    Center 1 = {result_obj.center1}")
+            print(f"    Center 2 = {result_obj.center2}")
+            print(f"    Translation Vector = {result_obj.transform.vec}")
+            print(f"    Rotation Matrix = {result_obj.transform.mat}")
+
+    def print_chains_superimposed_result(self):
+        print(f"RMSD =                  {self.chain_superimpose_result.rmsd}")
+        print(f"Count =                 {self.chain_superimpose_result.count}")
+        print(f"Center 1 =              {self.chain_superimpose_result.center1}")
+        print(f"Center 2 =              {self.chain_superimpose_result.center2}")
+        print(f"Translation Vector =    {self.chain_superimpose_result.transform.vec}")
+        print(f"Rotation Matrix =       {self.chain_superimpose_result.transform.mat}")
+
+    def print_slide_window_result(self, n=None):
+        if n is None or n > self.slide_window_result_1.shape[0]:
+            n = self.slide_window_result_1.shape[0]
+        print(f"slide_window_result_1 shape = {self.slide_window_result_1.shape}")
+        print(f"slide_window_result_1[0:{n}] = {self.slide_window_result_1[0:n]}")
+        print(f"slide_window_result_2 shape = {self.slide_window_result_2.shape}")
+        print(f"slide_window_result_2[0:{n}] = {self.slide_window_result_2[0:n]}")
+
+    def print_slide_window_superimpose_result(self, n=None):
+        if n is None or n > self.slide_window_superimpose_result.shape[0]:
+            n = self.slide_window_superimpose_result.shape[0]
+        print(f"slide_window_superimpose_result shape = {self.slide_window_superimpose_result.shape}")
+        print(f"slide_window_superimpose_result[0:{n}] = {self.slide_window_superimpose_result[0:n]}")
+
+    def print_rotation_matrices_and_vecs(self, n=None):
+        if n is None or n > self.rotation_mats.shape[0]:
+            n = self.rotation_mats.shape[0]
+        print(f"rotation_mats shape = {self.rotation_mats.shape}")
+        print(f"rotation_mats[0:{n}] = {self.rotation_mats[0:n]}")
+        print(f"rotation_vecs shape = {self.rotation_vecs.shape}")
+        print(f"rotation_vecs[0:{n}] = {self.rotation_vecs[0:n]}")
 
 
