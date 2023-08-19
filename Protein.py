@@ -48,6 +48,10 @@ class Protein:
         #########################################################
 
     def get_backbone_atoms(self):
+        """
+        Gets the backbone atoms of each residue (N, CA, C)
+        :return: A 2D array of residue backbone atoms
+        """
         # atoms = np.array([])
         atoms = []
         for res in self.chain_residues:

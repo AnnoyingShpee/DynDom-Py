@@ -36,18 +36,20 @@ class Engine:
     def run(self):
         if self.check_chain_compatibility() > 0.4 and self.check_chain_lengths():
             self.residues_superimpose_results = self.superimpose_residues()
+            self.chain_superimpose_result: gemmi.SupResult = self.superimpose_chains()
             self.slide_window_superimpose_result = self.sliding_window_superimpose()
+
             self.rotation_mats = self.get_rotation_mats()
             self.rotation_vecs = self.convert_rot_mats_to_vecs()
-            #
-            # self.chain_superimpose_result: gemmi.SupResult = self.superimpose_chains()
-            # self.print_chains_superimposed_result()
+
+
 
             # self.slide_window_result_1, self.slide_window_result_2 = self.sliding_window_on_backbone_atoms_1d()
             # self.slide_window_result_1, self.slide_window_result_2 = self.sliding_window_on_backbone_atoms_2d()
             # self.print_slide_window_result()
 
-            # Clusterer.calc_k_means_sklearn(self.rotation_mats, 100)
+            Clusterer.calc_k_means_sklearn(self.rotation_vecs, 25)
+
 
 
             # FileMngr.write_pdb_file()
@@ -56,13 +58,13 @@ class Engine:
         #     print("Sequences are too different to compare")
         #     return False
 
-        self.protein_1.print_chain()
+        # self.protein_1.print_chain()
         # self.protein_2.print_chain()
 
         # self.print_residues_superimposed_results()
         # self.print_chains_superimposed_result()
 
-        self.print_slide_window_superimpose_result(10)
+        # self.print_slide_window_superimpose_result(10)
 
         # self.print_rotation_matrices_and_vecs()
 
@@ -226,7 +228,7 @@ class Engine:
 
     def convert_rot_mats_to_vecs(self):
         rot_mats = [Rotation.from_matrix(sr.transform.mat.tolist()) for sr in self.residues_superimpose_results]
-        return np.array([rm.as_rotvec() for rm in rot_mats])
+        return np.array([rm.as_rotvec(degrees=True) for rm in rot_mats])
 
     def print_residues_superimposed_results(self, n=None):
         if n is None or n > len(self.residues_superimpose_results):
@@ -262,6 +264,12 @@ class Engine:
             n = self.slide_window_superimpose_result.shape[0]
         print(f"slide_window_superimpose_result shape = {self.slide_window_superimpose_result.shape}")
         print(f"slide_window_superimpose_result[0:{n}] = {self.slide_window_superimpose_result[0:n]}")
+        print(f"RMSD =                  {self.chain_superimpose_result.rmsd}")
+        print(f"Count =                 {self.chain_superimpose_result.count}")
+        print(f"Center 1 =              {self.chain_superimpose_result.center1}")
+        print(f"Center 2 =              {self.chain_superimpose_result.center2}")
+        print(f"Translation Vector =    {self.chain_superimpose_result.transform.vec}")
+        print(f"Rotation Matrix =       {self.chain_superimpose_result.transform.mat}")
 
     def print_rotation_matrices_and_vecs(self, n=None):
         if n is None or n > self.rotation_mats.shape[0]:
