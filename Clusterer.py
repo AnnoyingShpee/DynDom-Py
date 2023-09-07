@@ -7,12 +7,14 @@ from sklearn.cluster import KMeans
 
 
 class Clusterer:
-    def __init__(self, max_k, params, rotation_vectors):
+    def __init__(self, max_k, params, rotation_vectors, residues_1, residues_2):
         self.max_k: int = max_k
         self.params: {} = params
         self.rotation_vectors = rotation_vectors
+        self.residues_1 = residues_1
+        self.residues_2 = residues_2
+        self.k_means_results = None
         self.segments = {}
-        self.segment_mid_points = {}
 
         # self.unit_vectors = np.empty(shape=rotation_vectors.shape)
 
@@ -22,27 +24,31 @@ class Clusterer:
         # num_rotation_vec_axis = self.rotation_vectors.shape[1]
         current_k = 1
         finished = False
-        while not finished:
-            results: sklearn.cluster._kmeans.KMeans = self.calc_k_means_sklearn(current_k, num_iters)
-            segments = self.determine_segments(results.labels_, current_k)
-            # self.print_segments(results.labels_, segments)
-            segment_mid_points = self.get_segment_middle_element(segments)
-            if current_k >= 3:
-                finished = True
-                self.segments = segments
-                self.segment_mid_points = segment_mid_points
-            else:
-                current_k += 1
+        while (not finished) and current_k < self.max_k:
+            print(f"current_k = {current_k}")
+            self.k_means_results: sklearn.cluster._kmeans.KMeans = self.calc_k_means_sklearn(current_k, num_iters)
+            self.segments = self.determine_segments(current_k)
 
-    def determine_segments(self, k_mean_labels, k):
+            # self.print_segments(results.labels_, self.segments)
+            if not self.check_cluster_size():
+                finished = True
+            current_k += 1
+
+    def calc_k_means_sklearn(self, k, iters):
+        k_means = KMeans(n_clusters=k, random_state=0, n_init="auto", max_iter=iters).fit(self.rotation_vectors)
+        # print(f"Cluster labels = {k_means.labels_}")
+        # print(f"Cluster centers = {k_means.cluster_centers_}")
+        return k_means
+
+    def determine_segments(self, k):
         """
         Finds segments in the array of K-Means cluster IDs where the segments contain the same cluster IDs in a row.
-        :param k_mean_labels: An array of K-Means cluster IDs
         :param k:   Number of clusters
         :return:    A dictionary where the keys are the cluster IDs and the values are a list of tuples (start, end)
                     where start is the index in k_mean_labels where the segment starts and end is the index in
                     k_mean_labels where the segment ends.
         """
+        k_mean_labels = self.k_means_results.labels_
         current_element_to_check = k_mean_labels[0]
         start_index = 0
         end_index = 0
@@ -60,38 +66,41 @@ class Clusterer:
             end_index = i
         return segment_indices
 
-    def get_segment_middle_element(self, segments):
+    def get_domains(self):
         """
-        Gets the middle element of the segments
-        :param segments:
-        :return: Dictionary of lists of indexes of k_mean_labels
+        Gets the domains
+        :return:
         """
-        segment_mid_index = {key: [] for key in range(len(segments))}
-        for key, value in segments.items():
-            for v in value:
-                index = (v[0] + v[1]) // 2
-                segment_mid_index[key].append(index)
-        return segment_mid_index
+        for cluster, segments in self.segments.items():
+            continue
+        return
 
-    def calc_k_means_sklearn(self, k, iters):
-        k_means = KMeans(n_clusters=k, random_state=0, n_init="auto", max_iter=iters).fit(self.rotation_vectors)
-        # print(f"Cluster labels = {k_means.labels_}")
-        # print(f"Cluster centers = {k_means.cluster_centers_}")
-        return k_means
-
-    # def check_criterion(self, k):
-    #     return True
-
-    def print_segments(self, k_mean_labels, segments):
-        print(f"labels = {[k_mean_labels[i] for i in range(len(k_mean_labels))]}")
-        print(f"Length = {len(k_mean_labels)}")
+    def check_cluster_size(self):
         count = 0
-        for k, v in segments.items():
+        for cluster_segments in self.segments.values():
+            cluster_size_reached = False
+            for segment in cluster_segments:
+                count += segment[1] + 1 - segment[0]
+                if count >= int(self.params["domain"]):
+                    count = 0
+                    cluster_size_reached = True
+                    break
+            if not cluster_size_reached:
+                return False
+        return True
+
+    def print_labels(self):
+        print(f"Length = {len(self.k_means_results.labels_)}")
+        print(f"Labels = {[self.k_means_results.labels_[i] for i in range(len(self.k_means_results.labels_))]}")
+
+    def print_segments(self):
+        count = 0
+        for k, v in self.segments.items():
             print(f"Cluster {k}")
             print(f"Values {v}")
             for i in v:
-                print(k_mean_labels[i[0]:i[1]+1])
-                count += len(k_mean_labels[i[0]:i[1]+1])
+                print(self.k_means_results.labels_[i[0]:i[1]+1])
+                count += len(self.k_means_results.labels_[i[0]:i[1]+1])
         print(f"total = {count}")
         return
 

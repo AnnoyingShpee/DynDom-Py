@@ -1,42 +1,26 @@
 import sys
 import gemmi
 import numpy as np
-import scipy as sp
-# from Bio import SeqIO  # For working with sequence data (e.g., DNA, RNA, protein sequences)
-# from Bio.Seq import Seq  # For working with biological sequences
-# from Bio.SeqUtils import GC  # For calculating GC content
-# from Bio import AlignIO  # For handling sequence alignments
-# from Bio.PDB import PDBParser, PDBIO, PDBList, Structure, Model, Chain, Residue, Atom
-# from Bio.PDB.vectors import calc_dihedral
-
 """
 Gemmi follows a hierarchy:
 Structure -> Model -> Chain -> Residue -> Atom
-
-
 """
 
-"""
-The Structure.cell stores the cell parameters (a, b, c, alpha, beta, gamma) 
-and other properties of the cell precalculated for efficiency 
-(orthogonalization and fractionalization transformations, the volume, parameters of the reciprocal unit cell).
-"""
-
-# parser = PDBParser(PERMISSIVE=1)
 backbone_atoms = ["N", "CA", "C"]
 
 
 class Protein:
-    def __init__(self, file_path: str, chain: str = "A"):
+    def __init__(self, file_path: str, chain: str = "A", atom_type: str = "backbone"):
         self.structure: gemmi.Structure = gemmi.read_structure(file_path, format=gemmi.CoorFormat.Pdb)
         # self.structure.setup_entities()
         # self.structure.assign_label_seq_id()
         self.id: str = self.structure.name  # ID of the protein structure
         self.chain_param: str = chain  # The chain specified in parameter input for the program
+        self.atom_type: str = atom_type
         # There is usually only one model in the structure
         self.chain: gemmi.Chain = self.structure[0][self.chain_param]
         self.chain_residues: gemmi.ResidueSpan = self.chain.get_polymer()
-        self.chain_backbone_atoms = np.array(self.get_backbone_atoms())
+        self.chain_atoms = np.array(self.get_atoms())
 
         #########################################################
         # BioPython method
@@ -47,20 +31,29 @@ class Protein:
         # self.total_models, self.total_chains, self.total_residues, self.total_atoms = self.perform_protein_count()
         #########################################################
 
-    def get_backbone_atoms(self):
+    def get_atoms(self):
         """
-        Gets the backbone atoms of each residue (N, CA, C)
-        :return: A 2D array of residue backbone atoms
+        Gets the backbone atoms of each residue [(N, CA, C) or (CA only)]
+        :return: A 2D array of residue atoms
         """
-        # atoms = np.array([])
         atoms = []
-        for res in self.chain_residues:
-            atoms.append([res.sole_atom(a) for a in backbone_atoms])
+        if self.atom_type == "backbone":
+            for res in self.chain_residues:
+                atoms.append([res.sole_atom(a) for a in backbone_atoms])
+        elif self.atom_type == "ca":
+            for res in self.chain_residues:
+                atoms.append(res.sole_atom("CA"))
+        elif self.atom_type == "n":
+            for res in self.chain_residues:
+                atoms.append(res.sole_atom("N"))
+        elif self.atom_type == "c":
+            for res in self.chain_residues:
+                atoms.append(res.sole_atom("C"))
         return atoms
 
     def print_chain(self):
-        print(f"{self.id}({self.chain_param}) - {self.chain_backbone_atoms.shape}")
-        print(f"{self.id}({self.chain_param}) - {self.chain_backbone_atoms}")
+        print(f"{self.id}({self.chain_param}) - {self.chain_atoms.shape}")
+        print(f"{self.id}({self.chain_param}) - {self.chain_atoms}")
 
     # def perform_protein_count(self):
     #     ##############################################
@@ -90,21 +83,3 @@ class Protein:
     #     atoms = sum(1 for _ in self.structure.get_atoms())
     #     ##############################################
     #     return models, chains, residues, atoms
-
-    def write_to_pdb(self, path: str):
-        self.structure.write_pdb(str)
-
-
-
-# file = "data/cif/1lfg.cif"
-# file = "data/pdb/2cts.pdb"
-# test = Protein(file)
-# print(type(test.atoms))
-# for atom in test.atoms:
-#     atomic: Atom.Atom = atom
-#     print(atomic.coord)
-# for coord in test.coordinates:
-#     print(coord)
-# gemmi.calculate_superposition()
-# gemmi.calculate_angle()
-# print(test.atom_chain)
