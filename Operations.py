@@ -39,7 +39,7 @@ class Engine:
         # List of rotation vectors created from rotation_mats
         self.rotation_vecs = np.array([])
         # List of angles
-        self.angles = np.array([])
+        # self.angles = np.array([])
         # Clusterer object
         self.clusterer = None
         # self.slide_window_result_1, self.slide_window_result_2 = np.array([]), np.array([])
@@ -47,16 +47,19 @@ class Engine:
     def run(self):
         if self.check_chain_compatibility() > 0.4 and self.check_chain_lengths():
             self.superimpose_chains()
+            # self.superimpose_residues()
             self.sliding_window_superimpose_residues()
 
             self.get_rotation_mats()
             self.convert_rot_mats_to_vecs()
+            # self.print_rotation_vectors()
 
             k = 40
 
-            self.clusterer: Clusterer = Clusterer(k, self.parameters, self.rotation_vecs, self.slide_window_residues_1, self.slide_window_residues_2)
+            self.clusterer: Clusterer = Clusterer(k, self.parameters, self.rotation_vecs,
+                                                  self.slide_window_residues_1, self.slide_window_residues_2)
             self.clusterer.cluster()
-            self.clusterer.print_segments()
+            # self.clusterer.print_segments()
 
             # self.protein_1.print_chain()
             # self.protein_2.print_chain()
@@ -64,7 +67,7 @@ class Engine:
             # self.print_residues_superimposed_results()
             # self.print_chains_superimposed_result()
 
-            # self.print_slide_window_superimpose_results(10)
+            # self.print_slide_window_superimpose_results(5)
             # self.print_slide_window_residue_indices()
             # self.print_slide_window_residues()
 
@@ -104,11 +107,10 @@ class Engine:
         Superimposes the entire chain of the 2 Protein structures using the backbone atoms.
         :return: A gemmi.SupResult object (Only 1, not a list)
         """
-        polymer_1 = self.protein_1.chain_residues
-        polymer_2 = self.protein_2.chain_residues
-        ptype = polymer_1.check_polymer_type()
-        self.chain_superimpose_result: gemmi.SupResult = gemmi.calculate_superposition(polymer_1, polymer_2, ptype,
-                                                                                       gemmi.SupSelect.MainChain)
+        ptype = self.protein_1.chain_residues.check_polymer_type()
+        self.chain_superimpose_result: gemmi.SupResult = gemmi.calculate_superposition(self.protein_1.chain_residues,
+                                                                                       self.protein_2.chain_residues,
+                                                                                       ptype, gemmi.SupSelect.MainChain)
 
     def sliding_window_superimpose_residues(self):
         """
@@ -142,7 +144,7 @@ class Engine:
 
         try:
             final_index = residues_length + 1 - (window_size - window_mid_index)
-            # self.slide_window_residue_indices = (start_index, final_index)
+            self.slide_window_residue_indices = (start_index, final_index)
             self.get_utilised_residues((start_index, final_index))
             # For each residue in the 2 proteins, superimpose the backbone atoms
             for i in range(residues_length - window_size + 1):
@@ -176,29 +178,14 @@ class Engine:
         temp = []
         for i in range(len(self.slide_window_superimpose_results)):
             matrix: gemmi.Mat33 = self.slide_window_superimpose_results[i].transform.mat
-            listed_mat = matrix.tolist()
-            temp.append(listed_mat)
+            temp.append(matrix.tolist())
             # mat_1d = np.array(listed_mat).flatten()
             # temp.append(mat_1d)
         self.rotation_mats = np.array(temp)
 
     def convert_rot_mats_to_vecs(self):
-        rot_mats = [Rotation.from_matrix(sr.transform.mat.tolist()) for sr in self.slide_window_superimpose_results]
-        self.rotation_vecs = np.array([rm.as_rotvec(degrees=True) for rm in rot_mats])
-        self.angles = np.array([np.linalg.norm(i) for i in self.rotation_vecs])
-
-    # def print_residues_superimposed_results(self, n=None):
-    #     if n is None or n > len(self.residues_superimpose_results):
-    #         n = len(self.residues_superimpose_results)
-    #     print(f"Superimposed residues results shape = {self.residues_superimpose_results.shape}")
-    #     for i in range(n):
-    #         result_obj: gemmi.SupResult = self.residues_superimpose_results[i]
-    #         print(f"{i+1} RMSD = {result_obj.rmsd}")
-    #         print(f"    Count (Number of atoms used in each chain) = {result_obj.count}")
-    #         print(f"    Center 1 = {result_obj.center1}")
-    #         print(f"    Center 2 = {result_obj.center2}")
-    #         print(f"    Translation Vector = {result_obj.transform.vec}")
-    #         print(f"    Rotation Matrix = {result_obj.transform.mat}")
+        self.rotation_vecs = np.array([Rotation.from_matrix(rm).as_rotvec(degrees=True) for rm in self.rotation_mats])
+        # self.angles = np.array([np.linalg.norm(i) for i in self.rotation_vecs])
 
     def print_chains_superimposed_result(self):
         print(f"RMSD =                  {self.chain_superimpose_result.rmsd}")
@@ -212,7 +199,7 @@ class Engine:
         if n is None or n > self.slide_window_superimpose_results.shape[0]:
             n = self.slide_window_superimpose_results.shape[0]
         print(f"slide_window_superimpose_result shape = {self.slide_window_superimpose_results.shape}")
-        print(f"slide_window_superimpose_result[0:{n}] = {self.slide_window_superimpose_results[0:n]}")
+        # print(f"slide_window_superimpose_result[0:{n}] = {self.slide_window_superimpose_results[0:n]}")
         for i in range(n):
             item = self.slide_window_superimpose_results[i]
             print(f"RMSD =                  {item.rmsd}")
@@ -242,15 +229,16 @@ class Engine:
     def print_rotation_vectors(self, n=None):
         if n is None or n > self.rotation_vecs.shape[0]:
             n = self.rotation_vecs.shape[0]
+            for i in range(n):
+                print(f"[{self.rotation_vecs[i][0]}, {self.rotation_vecs[i][1]}, {self.rotation_vecs[i][2]}],")
         print(f"rotation_vecs shape = {self.rotation_vecs.shape}")
         print(f"rotation_vecs[0:{n}] = {self.rotation_vecs[0:n]}")
 
-    def print_angles(self, n=None):
-        if n is None or n > self.angles.shape[0]:
-            n = self.angles.shape[0]
-        print(f"angles shape = {self.angles.shape}")
-        print(f"angles[0:{n} = {self.angles[0:n]}")
-
+    # def print_angles(self, n=None):
+    #     if n is None or n > self.angles.shape[0]:
+    #         n = self.angles.shape[0]
+    #     print(f"angles shape = {self.angles.shape}")
+    #     print(f"angles[0:{n} = {self.angles[0:n]}")
 
     # def superimpose_residues(self):
     #     """
@@ -267,7 +255,7 @@ class Engine:
     #             pos_1 = [a.pos for a in backbone_1[i][:]]
     #             pos_2 = [a.pos for a in backbone_2[i][:]]
     #             # Superimpose and append
-    #             self.residues_superimpose_results = np.append(self.residues_superimpose_results,
-    #                                                           gemmi.superpose_positions(pos_1, pos_2))
+    #             self.chain_superimpose_result = np.append(self.chain_superimpose_result,
+    #                                                       gemmi.superpose_positions(pos_1, pos_2))
     #     except Exception as e:
     #         print(e)

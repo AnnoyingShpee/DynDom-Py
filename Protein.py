@@ -20,7 +20,7 @@ class Protein:
         # There is usually only one model in the structure
         self.chain: gemmi.Chain = self.structure[0][self.chain_param]
         self.chain_residues: gemmi.ResidueSpan = self.chain.get_polymer()
-        self.chain_atoms = np.array(self.get_atoms())
+        self.chain_atoms = np.array(self.get_backbone_atoms())
 
         #########################################################
         # BioPython method
@@ -31,7 +31,10 @@ class Protein:
         # self.total_models, self.total_chains, self.total_residues, self.total_atoms = self.perform_protein_count()
         #########################################################
 
-    def get_atoms(self):
+    # def __getitem__(self, item):
+    #     return self.chain_atoms[]
+
+    def get_backbone_atoms(self):
         """
         Gets the backbone atoms of each residue [(N, CA, C) or (CA only)]
         :return: A 2D array of residue atoms
