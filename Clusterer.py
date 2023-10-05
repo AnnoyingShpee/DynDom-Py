@@ -19,6 +19,9 @@ class Clusterer:
         self.residue_atoms = []
         self.domains_1 = []
         self.domains_2 = []
+        self.ext_int_ratio_1: float = 0.0
+        self.ext_int_ratio_2: float = 0.0
+
 
     def cluster(self):
         num_iters = 50
@@ -45,6 +48,12 @@ class Clusterer:
             current_k += 1
 
     def calc_k_means(self, k, iters):
+        """
+        Performs KMeans on the rotation vectors
+        :param k: Number of resulting clusters
+        :param iters: Number of maximum iterations
+        :return: KMeans results
+        """
         k_means = KMeans(n_clusters=k, random_state=0, n_init="auto", max_iter=iters).fit(self.rotation_vectors)
         return k_means
 
@@ -56,28 +65,25 @@ class Clusterer:
                     where start is the index in k_mean_labels where the segment starts and end is the index in
                     k_mean_labels where the segment ends.
         """
+        # Obtains the labels of the KMeans
         k_mean_labels = self.k_means_results.labels_
         # Set the first label as the checker to check the labels
         current_element_to_check = k_mean_labels[0]
         start_index = 0
         end_index = 0
-        # This line of code does not work as it will end up appending to all lists
+        # This line of code to declare and initialise a dictionary of lists does not work as it will end up
+        # appending to all lists.
         # segment_indices = dict.fromkeys(range(0, k), [])
         # This is the correct way to initialise a dictionary of lists
         segment_indices = {key: np.array([[]], dtype=int) for key in range(k)}
-        # Iterate through each label.
+        # Iterate through each label
         for i in range(len(k_mean_labels)):
             # When the label is not equal to the checker. It means the segment ends there and the segment's start and
             # end indices are obtained and stored.
             if k_mean_labels[i] != current_element_to_check:
                 temp = np.append(segment_indices[current_element_to_check], [[start_index, end_index]],
                                  axis=0 if segment_indices[current_element_to_check].shape[1] > 0 else 1)
-                # if segment_indices[current_element_to_check].shape[0] == 0:
-                #     temp = np.append(segment_indices[current_element_to_check], [start_index, end_index], axis=1)
-                # else:
-                #     temp = np.append(segment_indices[current_element_to_check], [start_index, end_index], axis=0)
                 segment_indices[current_element_to_check] = temp
-                # segment_indices[current_element_to_check].append((start_index, end_index))
                 current_element_to_check = k_mean_labels[i]
                 start_index = i
             if i == len(k_mean_labels) - 1:
@@ -89,6 +95,11 @@ class Clusterer:
         return segment_indices
 
     def domain_connectivity(self):
+        """
+        Takes the domains of one of the protein conformation and determines which domain has the most number of domains
+        connected to it.
+        :return:
+        """
         num_domains = len(self.domains_1)
         chosen_domain = None
         print(self.domains_1)
@@ -118,6 +129,15 @@ class Clusterer:
         connectivity = {key: np.unique(value).size for key, value in connectivity.items()}
         chosen_domain = max(connectivity, key=connectivity.get)
         return chosen_domain
+
+    def calc_ext_int_ratio(self):
+        """
+
+        :return:
+        """
+        domain_1 = self.domains_1
+        domain_2 = self.domains_2
+        return
 
     # def check_cluster_size(self):
         # unique, counts = np.unique(self.k_means_results.labels_, return_counts=True)
