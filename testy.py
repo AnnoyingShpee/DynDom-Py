@@ -1,105 +1,159 @@
 import numpy as np
-
-# # Define the matrix B
-B = np.array([
-    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    [0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    [0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    [0, 0, 1, 0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0],
-    [0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0],
-    [0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0],
-    [0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0],
-    [0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0],
-    [0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0],
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0],
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0],
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0],
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
-])
-
-R = np.array([
-    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    [0, 0, 1, 1, 1, 1, 1, 0, 1, 0, 0, 0, 0, 0],
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    [0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0],
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0],
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
-])
-
-T = np.array([
-    [1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0],
-    [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    [1, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    [0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    [0, 0, 1, 0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0],
-    [0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0],
-    [0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0],
-    [0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0],
-    [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0],
-    [0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0],
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0],
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0],
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0],
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
-])
+import itertools
 
 
-# Perform row reduction
-def row_reduction(matrix):
-    rows = matrix.shape[0]
-    connections_list: list = []
-    # used_indices = []
-    # Go through each row sequentially starting from the row with the highest index to the lowest index
-    for m in range(rows-1, -1, -1):
-        # print(f"=================================")
-        # print(f"m = {m}")
-        # print(f"---------------------------------")
-        connected_set = set()
-        lowest_index = m
-        or_wise_result = matrix[m]
-        # Go through each column sequentially starting from the current row number to the lowest index
-        for n in range(m, -1, -1):
-            if matrix[m][n] == 1:
-                list_to_or_wise = matrix[n]
-                # Perform OR wise logical operation on the 2 arrays
-                or_wise_result |= list_to_or_wise
-                print(f"Or wise = {or_wise_result}")
-                # Returns a tuple (a, b) where a is the list of indices of or_wise_result where the element is 1.
-                # b is empty.
-                results = np.where(or_wise_result == 1)
-                indices_array = results[0]
-                print(f"Indices = {indices_array}")
-                # connected_set.update(set(indices_array))
-                # print(f"Connected set = {connected_set}")
-                print(f"Connected list = {connections_list}")
-                ind = [i for i in range(len(connections_list)) if any(np.isin(indices_array, connections_list[i]))]
-                print(f"ind = {ind}")
-                if len(ind) > 0:
-                    temp = np.append(connections_list[ind[0]], indices_array)
-                    connections_list[ind[0]] = np.unique(temp, return_counts=False)
-                    # connections_list[ind[0]] = np.append(connections_list[ind[0]], indices_array)
-                    pass
-                else:
-                    connections_list.append(indices_array)
-
-    return connections_list
+# def split_consecutive_groups(lst):
+#     return [list(group) for key, group in itertools.groupby(lst)]
+#
+# # initialize list
+# test_list = [1, 4, 4, 5, 5, 5, 7, 7, 8, 8, 8, 5, 5]
+#
+# # printing original list
+# print("The original list is : " + str(test_list))
+#
+# # Identical Consecutive Grouping in list
+# # using itertools.groupby()
+# res = split_consecutive_groups(test_list)
+#
+# # printing result
+# print("List after grouping is : " + str(res))
 
 
-# Perform row reduction on matrix B
-print(row_reduction(B))
+# x=np.array([1, 2, 2, 2, 3, 3, 4, 4, 6, 6, 6, 6, 6, 6, 8, 6, 6])
+# ranges=[list(g) for _, g in itertools.groupby(range(len(x)), lambda idx:x[idx])]
+# # [[0], [1, 2, 3], [4, 5], [6, 7], [8, 9, 10, 11, 12, 13], [14]]
+# #   1    2  2  2    3  3    4  4    6  6  6   6   6   6     8
+#
+# final=[[r[0],r[-1]] for r in ranges if len(r)>0]
+# print(final)
+# print(type(final))
+# print(np.array(final))
+# print(type(np.array(final)))
+# # [[1, 3], [4, 5], [6, 7], [8, 13]]
+
+# # # Define the matrix B
+# B = np.array([
+#     [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+#     [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+#     [0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+#     [0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+#     [0, 0, 1, 0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0],
+#     [0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0],
+#     [0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0],
+#     [0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0],
+#     [0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0],
+#     [0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0],
+#     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0],
+#     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0],
+#     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0],
+#     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
+# ])
+#
+# R = np.array([
+#     [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+#     [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+#     [0, 0, 1, 1, 1, 1, 1, 0, 1, 0, 0, 0, 0, 0],
+#     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+#     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+#     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+#     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+#     [0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0],
+#     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+#     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+#     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0],
+#     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+#     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+#     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
+# ])
+#
+# T = np.array([
+#     [1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0],
+#     [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+#     [1, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+#     [0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+#     [0, 0, 1, 0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0],
+#     [0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0],
+#     [0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0],
+#     [0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0],
+#     [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0],
+#     [0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0],
+#     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0],
+#     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0],
+#     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0],
+#     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
+# ])
+#
+#
+# # Perform row reduction
+# def row_reduction(matrix):
+#     rows = matrix.shape[0]
+#     connections_list: list = []
+#     # used_indices = []
+#     # Go through each row sequentially starting from the row with the highest index to the lowest index
+#     for m in range(rows-1, -1, -1):
+#         # print(f"=================================")
+#         # print(f"m = {m}")
+#         # print(f"---------------------------------")
+#         connected_set = set()
+#         lowest_index = m
+#         or_wise_result = matrix[m]
+#         # Go through each column sequentially starting from the current row number to the lowest index
+#         for n in range(m, -1, -1):
+#             if matrix[m][n] == 1:
+#                 list_to_or_wise = matrix[n]
+#                 # Perform OR wise logical operation on the 2 arrays
+#                 or_wise_result |= list_to_or_wise
+#                 print(f"Or wise = {or_wise_result}")
+#                 # Returns a tuple (a, b) where a is the list of indices of or_wise_result where the element is 1.
+#                 # b is empty.
+#                 results = np.where(or_wise_result == 1)
+#                 indices_array = results[0]
+#                 print(f"Indices = {indices_array}")
+#                 # connected_set.update(set(indices_array))
+#                 # print(f"Connected set = {connected_set}")
+#                 print(f"Connected list = {connections_list}")
+#                 ind = [i for i in range(len(connections_list)) if any(np.isin(indices_array, connections_list[i]))]
+#                 print(f"ind = {ind}")
+#                 if len(ind) > 0:
+#                     temp = np.append(connections_list[ind[0]], indices_array)
+#                     connections_list[ind[0]] = np.unique(temp, return_counts=False)
+#                     # connections_list[ind[0]] = np.append(connections_list[ind[0]], indices_array)
+#                     pass
+#                 else:
+#                     connections_list.append(indices_array)
+#
+#     return connections_list
+#
+#
+# # Perform row reduction on matrix B
+# print(row_reduction(B))
+
+# A = np.empty(shape=[0, 2], dtype=int)
+# print(f"Before = {A}")
+# V = np.append(A, [3, 4], axis=0)
+# print(f"After = {V}")
+
+# A = np.array([[]], dtype=int)
+# print(f"Before = {A}")
+# print(A.shape)
+# A = np.append(A, [[3, 4]], axis=0 if A.shape[1] > 0 else 1)
+# # A = np.append(A, [[3, 4]], axis=1)
+# print(f"After = {A}")
+# print(A.shape)
+# # A = np.append(A, [[5, 6]], axis=0)
+# A = np.append(A, [[5, 6]], axis=0 if A.shape[1] > 0 else 1)
+# print(f"After = {A}")
+# print(A.shape)
+
+
+# A = np.array([[5, 6], [2, 3]], dtype=int)
+# print(f"SUM = {S}")
+
+
+
 
 
 # Generate sample data
-# np.random.seed(0)
 # X = np.array([[-58.449466568941546, -50.18029757464576, 84.73776302222632],
 # [-56.89368387916321, -62.89381346682054, 63.703058267840696],
 # [-116.13827637230091, -61.65467596487683, 107.67054734229158],

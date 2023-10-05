@@ -22,6 +22,7 @@ class Protein:
         self.chain_residues: gemmi.ResidueSpan = self.chain.get_polymer()
         self.chain_atoms = np.array(self.get_backbone_atoms())
 
+
         #########################################################
         # BioPython method
         #########################################################

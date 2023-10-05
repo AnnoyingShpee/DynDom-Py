@@ -1,24 +1,32 @@
+import numpy as np
 
 
 class Domain:
-    def __init__(self, dom_id: int, num_of_segments: int, segments: list):
+    def __init__(self, dom_id: int, num_of_segments: int, segments):
         self.id = dom_id
-        self.num_segments = num_of_segments
-        self.segments = segments
+        self.segments: np.array = segments
+        self.num_segments = 0
+        self.num_residues = 0
+        self.count_segments_and_residues()
 
     def __str__(self):
-        return f"Domain ID : {self.id} \n" \
+        return f"(Domain ID : {self.id} \n" \
                f"Number of Segments : {self.num_segments} \n" \
-               f"Segments List : {self.segments}"
+               f"Segments List : {self.segments} \n" \
+               f"Number of Residues : {self.num_residues})"
 
     def __repr__(self):
-        return f"Domain {self.id} with {self.num_segments} segments"
+        return f"(Domain ID : {self.id} \n" \
+               f"Number of Segments : {self.num_segments} \n" \
+               f"Segments List : {self.segments} \n" \
+               f"Number of Residues : {self.num_residues})"
 
-    def check_domain_size(self, min_domain_size):
-        count = 0
-        for segment in self.segments:
-            count += segment[1] + 1 - segment[0]
-            if count >= min_domain_size:
-                return True
-        return False
+    def add_segment(self, segment):
+        self.segments = np.append(self.segments, [segment], axis=0)
+        self.num_segments += 1
+        self.num_residues += segment[1] + 1 - segment[0]
+
+    def count_segments_and_residues(self):
+        self.num_segments = self.segments.shape[0]
+        self.num_residues = sum(self.segments[:, 1] + 1 - self.segments[:, 0])
 

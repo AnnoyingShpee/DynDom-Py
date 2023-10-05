@@ -33,7 +33,8 @@ class Engine:
         # List of residues located in the middle of each sliding window
         self.slide_window_residue_indices = ()
         # List of arrays of gemmi.SupResult objects containing superimposition information between each residue
-        self.slide_window_superimpose_results = np.array([])
+        # self.slide_window_superimpose_results = np.array([])
+        self.slide_window_superimpose_results = []
         # List of (3 x 3) rotation matrices
         self.rotation_mats = np.array([])
         # List of rotation vectors created from rotation_mats
@@ -49,17 +50,18 @@ class Engine:
             self.superimpose_chains()
             # self.superimpose_residues()
             self.sliding_window_superimpose_residues()
-
+            # Obtain the rotation matrices from the superposition results
             self.get_rotation_mats()
+            # self.print_rotation_matrices(5)
+            # Convert rotation matrices to rotation vectors
             self.convert_rot_mats_to_vecs()
-            # self.print_rotation_vectors()
+            # self.print_rotation_vectors(5)
 
             k = 40
 
-            self.clusterer: Clusterer = Clusterer(k, self.parameters, self.rotation_vecs,
+            self.clusterer: Clusterer = Clusterer(k, int(self.parameters["domain"]), self.rotation_vecs,
                                                   self.slide_window_residues_1, self.slide_window_residues_2)
             self.clusterer.cluster()
-            # self.clusterer.print_segments()
 
             # self.protein_1.print_chain()
             # self.protein_2.print_chain()
@@ -72,7 +74,7 @@ class Engine:
             # self.print_slide_window_residues()
 
             # self.print_rotation_matrices(5)
-            # self.print_rotation_vectors(5)
+            # self.print_rotation_vectors()
             # self.print_angles(5)
 
         else:
@@ -156,8 +158,9 @@ class Engine:
                 pos_1 = [a.pos for a in atoms_1]
                 pos_2 = [a.pos for a in atoms_2]
                 # Superimpose and append to array
-                self.slide_window_superimpose_results = np.append(self.slide_window_superimpose_results,
-                                                                  gemmi.superpose_positions(pos_1, pos_2))
+                # self.slide_window_superimpose_results = np.append(self.slide_window_superimpose_results,
+                #                                                   gemmi.superpose_positions(pos_1, pos_2))
+                self.slide_window_superimpose_results.append(gemmi.superpose_positions(pos_1, pos_2))
         except Exception as e:
             print(e)
 
@@ -175,13 +178,10 @@ class Engine:
         KMeans clustering. Specifically, the rotation matrix.
         :return:
         """
-        temp = []
+        self.rotation_mats = np.empty(shape=[len(self.slide_window_superimpose_results), 3, 3])
         for i in range(len(self.slide_window_superimpose_results)):
             matrix: gemmi.Mat33 = self.slide_window_superimpose_results[i].transform.mat
-            temp.append(matrix.tolist())
-            # mat_1d = np.array(listed_mat).flatten()
-            # temp.append(mat_1d)
-        self.rotation_mats = np.array(temp)
+            self.rotation_mats[i] = matrix.tolist()
 
     def convert_rot_mats_to_vecs(self):
         self.rotation_vecs = np.array([Rotation.from_matrix(rm).as_rotvec(degrees=True) for rm in self.rotation_mats])
@@ -196,12 +196,11 @@ class Engine:
         print(f"Rotation Matrix =       {self.chain_superimpose_result.transform.mat}")
 
     def print_slide_window_superimpose_results(self, n=None):
-        if n is None or n > self.slide_window_superimpose_results.shape[0]:
-            n = self.slide_window_superimpose_results.shape[0]
-        print(f"slide_window_superimpose_result shape = {self.slide_window_superimpose_results.shape}")
-        # print(f"slide_window_superimpose_result[0:{n}] = {self.slide_window_superimpose_results[0:n]}")
+        if n is None or n > len(self.slide_window_superimpose_results):
+            n = len(self.slide_window_superimpose_results)
+        print(f"slide_window_superimpose_result size = {len(self.slide_window_superimpose_results)}")
         for i in range(n):
-            item = self.slide_window_superimpose_results[i]
+            item: gemmi.SupResult = self.slide_window_superimpose_results[i]
             print(f"RMSD =                  {item.rmsd}")
             print(f"Count =                 {item.count}")
             print(f"Center 1 =              {item.center1}")
@@ -259,3 +258,4 @@ class Engine:
     #                                                       gemmi.superpose_positions(pos_1, pos_2))
     #     except Exception as e:
     #         print(e)
+

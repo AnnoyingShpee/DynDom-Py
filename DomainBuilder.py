@@ -13,19 +13,25 @@ def build_domains(residues: list, segments_dict: dict, min_domain: int):
     :return: List of Domain objects
     """
     domains = []
-    unused = []
-    print(segments_dict)
+    unused_segments = []
+    # print(segments_dict)
     for cluster, cluster_segments in segments_dict.items():
         # print(f"{cluster} = {cluster_segments}")
         bin_mat = create_bin_conn_mat(residues, cluster_segments)
         # print("============================================")
         # print("Binary Matrix")
         # print(bin_mat)
+        # List of Numpy arrays
         reduced_mat = row_reduction(bin_mat)
         # print("--------------------------------------------")
-        # print("Reduced Matrix")
+        # print(f"Reduced Matrix {cluster}")
         # print(reduced_mat)
-        domains = create_domain(reduced_mat, cluster_segments, min_domain, domains)
+        domains, unused_segments = create_domain(reduced_mat, cluster_segments, min_domain, domains, unused_segments)
+
+    # print(f"Final Domains = {domains}")
+    # print(f"Final Unused = {unused_segments}")
+    domains = join_segments(domains, unused_segments)
+
     return domains
 
 
@@ -51,24 +57,24 @@ def check_connection_between_atoms(residue_atoms: np.array, segment_atoms: np.ar
     return True if any(c > 0 for c in count) else False
 
 
-def create_bin_conn_mat(residues: list, segments: list):
+def create_bin_conn_mat(residues: list, segments: np.array):
     """
     Creates a binary connection matrix that shows which segments are connected with each other.
     :param residues: List of gemmi.Residue objects
-    :param segments:    List of tuples (s, e), where s and e are the indexes where the segment starts and end in the
+    :param segments:    Numpy array of arrays [s, e], where s and e are the indexes where the segment starts and end in the
                         residues list respectively
     :return bin_conn_mat: A matrix of size [N, N] where N is the length of the segments list
     """
     # Binary connection matrix that stores which segments are connected
-    bin_conn_mat = np.zeros((len(segments), len(segments)), dtype=int)
+    bin_conn_mat = np.zeros((segments.shape[0], segments.shape[0]), dtype=int)
     curr_segment = 0
     # Go through each segment
-    while curr_segment < len(segments):
+    while curr_segment < segments.shape[0]:
         # Get the start and end index of the current residues segment
         curr_segment_start_index = segments[curr_segment][0]
         curr_segment_end_index = segments[curr_segment][1] + 1
         # Check whether current residues segment is connected with any other residues segment
-        for s in range(len(segments)):
+        for s in range(segments.shape[0]):
             # No need to check distances between identical segments.
             if curr_segment == s:
                 bin_conn_mat[curr_segment][s] = 1
@@ -126,16 +132,90 @@ def row_reduction(matrix):
     return connections_list
 
 
-def create_domain(reduced_mat: list, cluster_segments: list, min_dom_size: int, domains: list):
+def create_domain(reduced_mat: list, cluster_segments: list, min_dom_size: int, domains: list, unused: list):
     new_domains = domains
+    new_unused = unused
     for rows in reduced_mat:
-        segments = [cluster_segments[r] for r in rows]
-        domain = Domain(len(domains), len(rows), segments)
-        if domain.check_domain_size(min_dom_size):
+        segments = np.array([cluster_segments[r] for r in rows])
+        if check_segments_size(segments, min_dom_size):
+            domain = Domain(len(domains), len(rows), segments)
             new_domains.append(domain)
-    for i in new_domains:
-        print(i)
+        else:
+            new_unused += [s for s in segments]
+    return new_domains, new_unused
+
+
+def check_segments_size(segments: np.array, min_domain_size: int):
+    # segments_sum = np.sum([s[1] + 1 - s[0] for s in segments])
+    segments_sum = sum(segments[:, 1] + 1 - segments[:, 0])
+    return True if segments_sum >= min_domain_size else False
+    # for segment in segments:
+    #     count += segment[1] + 1 - segment[0]
+    #     if count >= min_domain_size:
+    #         return True
+    # return False
+
+
+def join_segments(domains: list, unused: np.array):
+    """
+    Joins by checking where the segment connects at
+    Takes any unused segments and
+    :param domains: List of Domain objects
+    :param unused: Numpy array of segments
+    :return:
+    """
+    new_domains: list = domains
+    for u in unused:
+        # print("=============================")
+        # print(u)
+        prev_index = u[0] - 1
+        next_index = u[1] + 1
+        min_values = np.array([np.min(d.segments) for d in domains])
+        max_values = np.array([np.max(d.segments) for d in domains])
+        # print(f"Min = {min_values}")
+        # print(f"Max = {max_values}")
+        if prev_index > np.max(max_values):
+            # print("Prev More")
+            new_domains[np.argmax(max_values)].add_segment(u)
+            continue
+        if next_index < np.min(min_values):
+            # print("Next Less")
+            new_domains[np.argmin(min_values)].add_segment(u)
+            continue
+        prev_index_domain, next_index_domain = None, None
+        prev_hit, next_hit = False, False
+        added = False
+        # Joins the unused segment with the
+        for d in range(len(domains)):
+            # print(f"{d} : ({prev_index}, {next_index})")
+            segments: np.array = domains[d].segments
+            pi, pj = np.where(segments == prev_index)
+            ni, nj = np.where(segments == next_index)
+            # print(f"P = {pi}, {pj}")
+            # print(f"N = {ni}, {nj}")
+            if len(pi) > 0 and len(pj) > 0:
+                prev_index_domain = d
+                prev_hit = True
+            if len(ni) > 0 and len(nj) > 0:
+                next_index_domain = d
+                next_hit = True
+            if prev_hit and next_hit:
+                if prev_index_domain == next_index_domain:
+                    # print(f"Domain {prev_index_domain} add {u}")
+                    new_domains[prev_index_domain].add_segment(u)
+                else:
+                    new_domains[next_index_domain].add_segment(u)
+                added = True
+                break
+        if not added:
+            if prev_hit:
+                new_domains[prev_index_domain].add_segment(u)
+            elif next_hit:
+                new_domains[next_index_domain].add_segment(u)
+    # print(f"New Domains = {new_domains}")
     return new_domains
+
+
 
 
 # Returns a dictionary
