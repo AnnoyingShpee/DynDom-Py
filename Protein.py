@@ -20,8 +20,9 @@ class Protein:
         # There is usually only one model in the structure
         self.chain: gemmi.Chain = self.structure[0][self.chain_param]
         self.chain_residues: gemmi.ResidueSpan = self.chain.get_polymer()
-        self.chain_atoms = np.array(self.get_backbone_atoms())
-
+        self.chain_atoms = None
+        self.slide_window_residues = []
+        self.get_backbone_atoms()
 
         #########################################################
         # BioPython method
@@ -31,9 +32,6 @@ class Protein:
         # self.atom_coordinates = [atom.get_vector() for atom in self.structure.get_atoms()]
         # self.total_models, self.total_chains, self.total_residues, self.total_atoms = self.perform_protein_count()
         #########################################################
-
-    # def __getitem__(self, item):
-    #     return self.chain_atoms[]
 
     def get_backbone_atoms(self):
         """
@@ -53,11 +51,17 @@ class Protein:
         elif self.atom_type == "c":
             for res in self.chain_residues:
                 atoms.append(res.sole_atom("C"))
-        return atoms
+        self.chain_atoms = np.array(atoms)
 
     def print_chain(self):
         print(f"{self.id}({self.chain_param}) - {self.chain_atoms.shape}")
         print(f"{self.id}({self.chain_param}) - {self.chain_atoms}")
+
+    def print_slide_window_residues(self, n=None):
+        if n is None or n > len(self.slide_window_residues):
+            n = len(self.slide_window_residues)
+        print(f"slide_window_residue_1 shape = {len(self.slide_window_residues)}")
+        print(f"slide_window_residues_1[0:{n}] = {self.slide_window_residues[0:n]}")
 
     # def perform_protein_count(self):
     #     ##############################################
