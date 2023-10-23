@@ -1,16 +1,24 @@
+import math
 import numpy as np
 import gemmi
 from sklearn.cluster import KMeans
+from copy import deepcopy
 import Protein
 import Domain
+from scipy.linalg import svd
 import DomainBuilder as dom_build
 
 
+backbone_atoms = ["N", "CA", "C"]
+
+
 class Clusterer:
-    def __init__(self, max_k: int, domain_size: int, ratio: float, rotation_vectors: np.array, protein_1: Protein, protein_2: Protein):
+    def __init__(self, max_k: int, params: dict, rotation_vectors: np.array, protein_1: Protein, protein_2: Protein):
         self.max_k: int = max_k
-        self.min_domain_size: int = domain_size
-        self.min_ratio: float = ratio
+        self.min_domain_size: int = int(params["domain"])
+        self.min_ratio: float = float(params["ratio"])
+        self.atoms_type = params["atoms"]
+        self.num_atoms = 3 if params["atoms"] == "backbone" else 1
         self.rotation_vectors: np.array = rotation_vectors
         self.protein_1: Protein = protein_1
         self.protein_2: Protein = protein_2
@@ -18,8 +26,6 @@ class Clusterer:
         self.segments = {}
         self.domains = []
         self.fixed_domain = None
-        self.ext_int_ratio_1: float = 0.0
-        self.ext_int_ratio_2: float = 0.0
 
     def cluster(self):
         num_iters = 50
@@ -32,22 +38,31 @@ class Clusterer:
             # KMeans the rotation vectors to obtain k number of clusters
             self.k_means_results = self.calc_k_means(current_k, num_iters)
             # self.print_labels()
-            # Obtain the segments from the KMeans results
+            # Obtain the segments from the KMeans results. The segments' indices are for the slide windowed residues.
             temp_segments = self.determine_segments(current_k)
-            # self.print_segments()
-            print("Protein 1")
-            temp_domains = dom_build.build_domains(self.protein_1.slide_window_residues, self.segments, self.min_domain_size)
-            print(temp_domains)
+            temp_domains = dom_build.build_domains(self.protein_1.slide_window_residues, temp_segments, self.min_domain_size)
+            # print(temp_domains)
             # print("Protein 2")
             # temp_2_domains = dom_build.build_domains(self.residues_2, self.segments, self.min_domain_size)
             # print(temp_2_domains)
             if not (self.check_domain_sizes(temp_domains)):
+                print("Size Break")
                 break
             temp_fixed_domain = self.domain_connectivity(temp_domains)
-            protein_fit = self.whole_protein_domain_best_fit(temp_domains)
-            # self.calc_ext_int_ratio(temp_1_domains, self.residues_1, self.residues_2, temp_fixed_domain)
-            # self.protein_1_domains = temp_1_domains
-            # self.protein_2_domains = temp_2_domains
+            # Perform mass-weighted whole-protein best fit to obtain a new set of coordinates for Protein 1
+            r, transformed_1_on_2, transformed_2_on_1 = self.whole_protein(temp_domains)
+            # self.print_coords(transformed_1_on_2, transformed_2_on_1)
+            # print(transformed)
+            ints, rs = self.calc_int(temp_domains, transformed_2_on_1)
+            exts = self.calc_ext(temp_domains, rs)
+            print(exts)
+            print(ints)
+            ratio = self.calc_ext_int_ratio(exts, ints, temp_domains)
+            print(ratio)
+
+            if ratio < self.min_ratio:
+                print("Ratio Break")
+                break
             self.segments = temp_segments
             self.domains = temp_domains
             self.fixed_domain = temp_fixed_domain
@@ -73,6 +88,7 @@ class Clusterer:
         """
         # Obtains the labels of the KMeans
         k_mean_labels = self.k_means_results.labels_
+        # print(len(k_mean_labels))
         # Set the first label as the checker to check the labels
         current_element_to_check = k_mean_labels[0]
         start_index = 0
@@ -134,80 +150,149 @@ class Clusterer:
         chosen_domain = max(connectivity, key=connectivity.get)
         return chosen_domain
 
-    def whole_protein_domain_best_fit(self, domains: list, residues_1: list, residues_2: list):
-
-        fit = 0.0
-        for i in range(len(domains)):
-            domain: Domain = domains[i]
-            mass = 1 / domain.num_residues
-            
-        return fit
-
-    def superimpose_chains(self):
+    def whole_protein(self, domains):
         """
-        Superimposes each residue of the 2 Protein structures using backbone atoms.
-        :return: List of gemmi.SupResult objects containing superimposition information
+        Performs a mass-weighted whole-protein best fit.
+        :param domains:
+        :return r: A SupResult object containing RMSD, Center 1, Center 2, Rotation Matrix, and Translation Vector
+        :return chain_1_copy: The slide window residue chain of Protein 1 after transformation to Protein 2's position
+        :return chain_2_copy: The slide window residue chain of Protein 2 after transformation to Protein 1's position
         """
-        # Get the backbone atoms
-        backbone_1 = self.protein_1.chain_atoms
-        backbone_2 = self.protein_2.chain_atoms
-        self.chain_superimpose_result = []
-        try:
-            # For each residue in the 2 proteins, superimpose the backbone atoms
-            for i in range(backbone_1.shape[0]):
-                # Get the x, y, and z coordinates of the backbone atoms (N, CA, C) of the specific residue
-                pos_1 = [a.pos for a in backbone_1[i][:]]
-                pos_2 = [a.pos for a in backbone_2[i][:]]
-                # Superimpose and append
-                self.chain_superimpose_result.append(gemmi.superpose_positions(pos_1, pos_2))
-        except Exception as e:
-            print(e)
+        slide_indices = self.protein_1.slide_window_residues_indices
+        chain_1_copy = self.protein_1.residue_span
+        chain_2_copy = self.protein_2.residue_span
+        for i in range(len(chain_1_copy) - slide_indices[1]):
+            chain_1_copy.__delitem__(-1)
+            chain_2_copy.__delitem__(-1)
+        for i in range(slide_indices[0]):
+            chain_1_copy.__delitem__(0)
+            chain_2_copy.__delitem__(0)
+        # Reset the structures after deletion as the ResidueSpans use referencing. This will "force" chain_2_copy to
+        # become a separate object that doesn't reference the Protein's ResidueSpan object
+        self.protein_1.recreate_structure()
+        self.protein_2.recreate_structure()
+        weights = []
+        coords_1 = []
+        coords_2 = []
+        for d in range(len(domains)):
+            for s in domains[d].segments:
+                for si in range(s[0], s[1] + 1):
+                    for a in backbone_atoms:
+                        coords_1.append(chain_1_copy[si].sole_atom(a).pos)
+                        coords_2.append(chain_2_copy[si].sole_atom(a).pos)
+                        weights.append(1/domains[d].num_residues)
+        r_2: gemmi.SupResult = gemmi.superpose_positions(coords_1, coords_2, weights)
+        r_1: gemmi.SupResult = gemmi.superpose_positions(coords_2, coords_1, weights)
+        chain_1_copy.transform_pos_and_adp(r_1.transform)
+        chain_2_copy.transform_pos_and_adp(r_2.transform)
+        # print(f"Count = {r_2.count}")
+        # print(f"Center 1 = {r_2.center1}")
+        # print(f"Center 2 = {r_2.center2}")
+        # print(f"RMSD = {r_2.rmsd}")
+        # print(f"Rotation = {r_2.transform.mat}")
+        # print(f"Translation = {r_2.transform.vec}")
+        return r_2, chain_1_copy, chain_2_copy
 
-    def calc_ext_int_ratio(self, domains: Domain, backbone_chain_1, backbone_chain_2, fixed_domain_id):
+    def superimpose(self, domains, residue_span, protein=1):
         """
-        Calculates the ratio of the inter (external) and intra (internal) motions of domain pairs
+
+        :param domains:
+        :param residue_span: A ResidueSpan object
+        :param protein: The Protein to be used to superimpose onto the residue_span
         :return:
         """
-        ratios = []
-        for d in domains:
-            if d.id == fixed_domain_id:
-                continue
-            mass = 1 / d.num_residues
-            ext = self.calc_external_motion(d, backbone_chain_1, backbone_chain_2, mass)
-            int = self.calc_internal_motion(d, backbone_chain_1, backbone_chain_2, mass)
-            # ratio = math.sqrt()
-            # ratios.append(ratio)
-        return
+        slide_indices = self.protein_1.slide_window_residues_indices
+        results = []
+        if protein == 1:
+            chain = self.protein_1.residue_span
+            for i in range(len(chain) - slide_indices[1]):
+                chain.__delitem__(-1)
+            for i in range(slide_indices[0]):
+                chain.__delitem__(0)
+            self.protein_1.recreate_structure()
+        else:
+            chain = self.protein_2.residue_span
+            for i in range(len(chain) - slide_indices[1]):
+                chain.__delitem__(-1)
+            for i in range(slide_indices[0]):
+                chain.__delitem__(0)
+            self.protein_2.recreate_structure()
+        for d in range(len(domains)):
+            bottom_coords = []
+            top_coords = []
+            for s in domains[d].segments:
+                for si in range(s[0], s[1] + 1):
+                    for a in backbone_atoms:
+                        top_coords.append(chain[si].sole_atom(a).pos)
+                        bottom_coords.append(residue_span[si].sole_atom(a).pos)
+            r = gemmi.superpose_positions(bottom_coords, top_coords)
+            results.append(r)
+        return results
 
-    def calc_external_motion(self, domain, backbone_chain_1, backbone_chain_2, mass):
-        motion = 0.0
-        coordinates = []
-        for s in domain.segments:
-            coordinates.extend(backbone_chain_1[s[0]:s[1]])
-        return motion
+    def calc_int(self, domains, transformed_whole_protein):
+        """
 
-    def calc_internal_motion(self, domain, backbone_chain_1, backbone_chain_2, mass):
-        motion = 0.0
-        return motion
+        :param domains:
+        :param transformed_whole_protein: The slide window residue chain of protein 2 after superposition onto Protein 1
+        :return:
+        """
+        int_msf = []
+        rs = self.superimpose(domains, transformed_whole_protein, protein=1)
+        for r in range(len(rs)):
+            int_msf.append((rs[r].rmsd ** 2) * domains[r].num_residues)
+
+        return int_msf, rs
+
+    def calc_ext(self, domains, rs):
+        ext_msf = []
+        slide_indices = self.protein_1.slide_window_residues_indices
+        # rs = self.superimpose(domains, transformed_2, protein=1)
+        for r in range(len(rs)):
+            original_coords = np.empty(shape=[domains[r].num_residues * self.num_atoms, 3])
+            transformed_coords = np.empty(shape=[domains[r].num_residues * self.num_atoms, 3])
+            chain = self.protein_1.residue_span
+            for i in range(len(chain) - slide_indices[1]):
+                chain.__delitem__(-1)
+            for i in range(slide_indices[0]):
+                chain.__delitem__(0)
+            self.protein_1.recreate_structure()
+            chain.transform_pos_and_adp(rs[r].transform)
+            i = 0
+            for s in domains[r].segments:
+                for si in range(s[0], s[1] + 1):
+                    for a in backbone_atoms:
+                        original_coords[i] = np.asarray(self.protein_1.slide_window_residues[si].sole_atom(a).pos.tolist())
+                        transformed_coords[i] = np.asarray(chain[si].sole_atom(a).pos.tolist())
+                        i += 1
+            disp_vecs = (original_coords - transformed_coords) ** 2
+            sum_disp = np.sum(np.sum(disp_vecs, axis=1))
+            ext_msf.append(sum_disp)
+            self.protein_1.recreate_structure()
+
+        return ext_msf
+
+    def calc_ext_int_ratio(self, exts, ints, domains):
+        sum_exts = 0
+        sum_ints = 0
+        for d in range(len(domains)):
+            sum_exts += exts[d] / domains[d].num_residues
+            sum_ints += ints[d] / domains[d].num_residues
+        ratio = math.sqrt(sum_exts/sum_ints)
+        return ratio
 
     def check_domain_sizes(self, domains):
         return False if any(d.num_residues < self.min_domain_size for d in domains) else True
-
-    def remove_tiny_clusters(self):
-        unique, counts = np.unique(self.k_means_results.labels_, return_counts=True)
-        print(f"Unique = {unique}")
-        print(f"Counts = {counts}")
 
     def print_labels(self):
         print("Printing Labels...")
         print(f"Length = {len(self.k_means_results.labels_)}")
         print(f"Labels = {[self.k_means_results.labels_[i] for i in range(len(self.k_means_results.labels_))]}")
 
-    def print_segments(self):
+    def print_segments(self, segments):
         print("Printing segments...")
         seg_count = 0
         res_count = 0
-        for k, v in self.segments.items():
+        for k, v in segments.items():
             print(f"Cluster {k}")
             print(f"Values {v}")
             seg_count += v.shape[0]
@@ -218,9 +303,13 @@ class Clusterer:
         print(f"Res total = {res_count}")
         return
 
-    # def get_unit_vectors(self):
-    #     for i in range(self.rotation_vectors.shape[0]):
-    #         vec = self.rotation_vectors[i]
-    #         norm_vec = vec / np.linalg.norm(vec)
-    #         self.unit_vectors[i] = norm_vec
+    def print_coords(self, transformed_1, transformed_2):
+        for i in range(len(transformed_1)):
+            for a in backbone_atoms:
+                print(f"==============================================")
+                print(f"P1 : {self.protein_1.slide_window_residues[i].sole_atom(a).pos} -> {transformed_1[i].sole_atom(a).pos}")
+                print(f"P2 : {self.protein_2.slide_window_residues[i].sole_atom(a).pos} -> {transformed_2[i].sole_atom(a).pos}")
+                print(f"==============================================")
+
+
 

@@ -1,35 +1,34 @@
 import numpy as np
-import itertools
+from scipy.linalg import svd
 
+coordinates1 = np.array([
+    [34.4, 12.3, 5.2],
+    [12.3, 64.1, 66.4],
+    [41.3, 57.3, 34.0]
+])
 
-# def split_consecutive_groups(lst):
-#     return [list(group) for key, group in itertools.groupby(lst)]
-#
-# # initialize list
-# test_list = [1, 4, 4, 5, 5, 5, 7, 7, 8, 8, 8, 5, 5]
-#
-# # printing original list
-# print("The original list is : " + str(test_list))
-#
-# # Identical Consecutive Grouping in list
-# # using itertools.groupby()
-# res = split_consecutive_groups(test_list)
-#
-# # printing result
-# print("List after grouping is : " + str(res))
+coordinates2 = np.array([
+    [64.1, 31.3, 45.2],
+    [41.3, 8.1, 65.4],
+    [12.3, 97.3, 43.1]
+])
 
+mass1 = np.repeat(1/3, 3)  # Equal mass for all atoms
+mass2 = np.repeat(1/3, 3)
 
-# x=np.array([1, 2, 2, 2, 3, 3, 4, 4, 6, 6, 6, 6, 6, 6, 8, 6, 6])
-# ranges=[list(g) for _, g in itertools.groupby(range(len(x)), lambda idx:x[idx])]
-# # [[0], [1, 2, 3], [4, 5], [6, 7], [8, 9, 10, 11, 12, 13], [14]]
-# #   1    2  2  2    3  3    4  4    6  6  6   6   6   6     8
-#
-# final=[[r[0],r[-1]] for r in ranges if len(r)>0]
-# print(final)
-# print(type(final))
-# print(np.array(final))
-# print(type(np.array(final)))
-# # [[1, 3], [4, 5], [6, 7], [8, 13]]
+center_of_mass1 = np.sum(coordinates1 * mass1[:, np.newaxis], axis=0) / np.sum(mass1)
+center_of_mass2 = np.sum(coordinates2 * mass2[:, np.newaxis], axis=0) / np.sum(mass2)
+
+translated_coordinates1 = coordinates1 - center_of_mass1
+translated_coordinates2 = coordinates2 - center_of_mass2
+
+covariance_matrix = np.dot(translated_coordinates1.T, translated_coordinates2)
+U, S, Vt = np.linalg.svd(covariance_matrix)
+rotation_matrix = np.dot(Vt.T, U.T)
+rotated_coordinates2 = np.dot(coordinates2, rotation_matrix)
+diff_squared = (coordinates1 - rotated_coordinates2) ** 2
+rmsd = np.sqrt(np.mean(diff_squared))
+print(rmsd)
 
 # # # Define the matrix B
 # B = np.array([

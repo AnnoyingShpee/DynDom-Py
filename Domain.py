@@ -2,7 +2,7 @@ import numpy as np
 
 
 class Domain:
-    def __init__(self, dom_id: int, num_of_segments: int, segments):
+    def __init__(self, dom_id: int, segments):
         self.id = dom_id
         self.segments: np.array = segments
         self.num_segments = 0

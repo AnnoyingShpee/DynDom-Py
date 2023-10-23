@@ -138,7 +138,7 @@ def create_domain(reduced_mat: list, cluster_segments: list, min_dom_size: int, 
     for rows in reduced_mat:
         segments = np.array([cluster_segments[r] for r in rows])
         if check_segments_size(segments, min_dom_size):
-            domain = Domain(len(domains), len(rows), segments)
+            domain = Domain(len(domains), segments)
             new_domains.append(domain)
         else:
             new_unused += [s for s in segments]
