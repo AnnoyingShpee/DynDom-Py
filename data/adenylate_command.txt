@@ -6,19 +6,19 @@
 #
 # GIVE A TITLE (ALSO USED FOR NAMING OUTPUT FILES)
 #
-title=1ctsA-2ctsA.w5
+title=4akeA-1akeA.w5
 #
 # WRITE FILENAME FOR 1ST CHAIN
 #
-filename1=1cts.pdb
+filename1=2eck.pdb
 #
 # ONE LETTER CODE FOR 1ST CHAIN ID IF IT EXISTS, OTHERWISE LEAVE BLANK
 #
-chain1id=A
+chain1id=B
 #
 # WRITE FILENAME FOR 2ND CHAIN, MAY BE SAME AS FIRST
 #
-filename2=2cts.pdb
+filename2=4ake.pdb
 #
 # ONE LETTER CODE FOR 2ND CHAIN ID 
 #

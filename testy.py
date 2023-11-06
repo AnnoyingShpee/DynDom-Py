@@ -1,34 +1,38 @@
 import numpy as np
-from scipy.linalg import svd
+import matplotlib.pyplot as plt
 
-coordinates1 = np.array([
-    [34.4, 12.3, 5.2],
-    [12.3, 64.1, 66.4],
-    [41.3, 57.3, 34.0]
-])
-
-coordinates2 = np.array([
-    [64.1, 31.3, 45.2],
-    [41.3, 8.1, 65.4],
-    [12.3, 97.3, 43.1]
-])
-
-mass1 = np.repeat(1/3, 3)  # Equal mass for all atoms
-mass2 = np.repeat(1/3, 3)
-
-center_of_mass1 = np.sum(coordinates1 * mass1[:, np.newaxis], axis=0) / np.sum(mass1)
-center_of_mass2 = np.sum(coordinates2 * mass2[:, np.newaxis], axis=0) / np.sum(mass2)
-
-translated_coordinates1 = coordinates1 - center_of_mass1
-translated_coordinates2 = coordinates2 - center_of_mass2
-
-covariance_matrix = np.dot(translated_coordinates1.T, translated_coordinates2)
-U, S, Vt = np.linalg.svd(covariance_matrix)
-rotation_matrix = np.dot(Vt.T, U.T)
-rotated_coordinates2 = np.dot(coordinates2, rotation_matrix)
-diff_squared = (coordinates1 - rotated_coordinates2) ** 2
-rmsd = np.sqrt(np.mean(diff_squared))
-print(rmsd)
+# def chasles_theorem_visualization():
+#     # Create the initial polygon (a triangle)
+#     vertices1 = np.array([[0, 0], [1, 0], [0.5, np.sqrt(3) / 2]])
+#     x1, y1 = vertices1[:, 0], vertices1[:, 1]
+#
+#     # Create the final polygon (a hexagon)
+#     vertices2 = np.array([[0, 0], [1, 0], [1.5, np.sqrt(3) / 2], [1, np.sqrt(3)], [0.5, np.sqrt(3) / 2], [0, np.sqrt(3)]])
+#     x2, y2 = vertices2[:, 0], vertices2[:, 1]
+#
+#     # Create a sequence of intermediate polygons
+#     n_steps = 50
+#     intermediate_polygons = []
+#     for i in range(n_steps):
+#         t = i / (n_steps - 1)
+#         x_intermediate = (1 - t) * x1 + t * x2
+#         y_intermediate = (1 - t) * y1 + t * y2
+#         intermediate_polygons.append((x_intermediate, y_intermediate))
+#
+#     # Create a plot to visualize the transformation
+#     plt.figure(figsize=(8, 8))
+#     for x, y in intermediate_polygons:
+#         plt.plot(x, y, color='b', alpha=0.5)
+#
+#     plt.plot(x1, y1, label='Initial Polygon (Triangle)', color='r', linestyle='--')
+#     plt.plot(x2, y2, label='Final Polygon (Hexagon)', color='g', linestyle='--')
+#     plt.title("Chasles' Theorem Visualization")
+#     plt.legend()
+#     plt.grid()
+#     plt.axis('equal')
+#     plt.show()
+#
+# chasles_theorem_visualization()
 
 # # # Define the matrix B
 # B = np.array([

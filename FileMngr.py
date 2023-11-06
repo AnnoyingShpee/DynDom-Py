@@ -13,6 +13,7 @@ def read_command_file(file_name: str):
         for line in lines:
             if not ("#" in line):
                 line = line.replace("\n", "")
+                line = line.replace(" ", "")
                 tokens = line.split("=")
                 temp_dict[tokens[0]] = tokens[1]
         fr.close()
