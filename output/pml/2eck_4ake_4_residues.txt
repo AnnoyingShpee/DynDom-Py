@@ -1,0 +1,39 @@
+4
+dddddddddddddddddddddddddddddd
+(Domain ID : 0 
+Number of Segments : 1 
+Segments List : [[115 155]] 
+Number of Residues : 41)
+dddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddd
+(Domain ID : 1 
+Number of Segments : 9 
+Segments List : [[  3   9]
+ [ 25  26]
+ [ 60  76]
+ [ 79  99]
+ [101 101]
+ [107 108]
+ [112 114]
+ [156 170]
+ [175 189]] 
+Number of Residues : 83)
+dddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddd
+(Domain ID : 2 
+Number of Segments : 1 
+Segments List : [[27 59]] 
+Number of Residues : 33)
+dddddddddddddddddddddddddddddd
+dddddddddddddddddddddddddddddd
+(Domain ID : 3 
+Number of Segments : 7 
+Segments List : [[  0   2]
+ [ 10  24]
+ [ 77  78]
+ [100 100]
+ [102 106]
+ [109 111]
+ [190 208]] 
+Number of Residues : 48)
+dddddddddddddddddddddddddddddd

@@ -4,14 +4,15 @@ import gemmi
 from sklearn.cluster import KMeans
 import Protein
 import DomainBuilder as dom_build
+import FileMngr
 
 
 class Clusterer:
-    def __init__(self, max_k: int, params: dict, rotation_vectors: np.array, protein_1: Protein, protein_2: Protein, main_atoms):
-        self.max_k: int = max_k
+    def __init__(self, params: dict, rotation_vectors: np.array, protein_1: Protein, protein_2: Protein, main_atoms):
+        # We want a large enough k so that it doesn't get used. If it does manage to get used, good luck.
+        self.max_k = 40
         self.min_domain_size: int = int(params["domain"])
         self.min_ratio: float = float(params["ratio"])
-        self.atoms_type = params["atoms"]
         self.backbone_atoms = main_atoms
         self.num_atoms = len(self.backbone_atoms)
         self.rotation_vectors: np.array = rotation_vectors
@@ -19,34 +20,40 @@ class Clusterer:
         self.protein_2: Protein = protein_2
         self.k_means_results = None
         self.segments = {}
+        self.clusters = []
         self.domains = []
-        # The number determining which domain will be the fixed point
+        # The domain id number determining which domain will be the fixed point
         self.fixed_domain = None
         # List of gemmi.SupResult objects
         self.rs = None
 
     def cluster(self):
-        num_iters = 50
-        current_k = 3
+        current_k = 2
         condition_unmet = False
+        domains_valid = False
+        valid_k_value_found = False
         # while (not finished) and current_k < self.max_k:
         while current_k < self.max_k and not condition_unmet:
             print(f"current_k = {current_k}")
+            FileMngr.write_details_to_file(f"{self.protein_1.id}_{self.protein_2.id}_{current_k}", "w", f"{current_k}\n")
             # KMeans the rotation vectors to obtain k number of clusters
-            self.k_means_results = self.calc_k_means(current_k, num_iters)
+            self.k_means_results = self.calc_k_means(current_k)
             # self.print_labels()
             # Obtain the segments from the KMeans results. The segments' indices are for the slide windowed residues.
-            temp_segments = self.determine_segments(current_k)
-            # self.print_segments(temp_segments)
-            if not self.check_cluster_sizes(temp_segments):
-                print("Cluster Break")
-                condition_unmet = True
-            temp_domains_1, cluster_break = dom_build.build_domains(self.protein_1.slide_window_residues, temp_segments, self.min_domain_size)
-            # print("Domains 1")
-            # self.print_domains(temp_domains_1)
-            if cluster_break:
-                print("Domain Size Break")
-                condition_unmet = True
+            temp_segments, all_domains_small = self.determine_segments(current_k)
+            self.print_segments(temp_segments)
+            if not all_domains_small:
+                domains_valid = True
+            if all_domains_small and domains_valid:
+                print("All domains found are smaller than minimum domain size. Clustering halted.")
+                break
+            elif all_domains_small and not domains_valid:
+                print("All domains in the cluster are less than minimum domain size")
+                current_k += 1
+                continue
+            temp_domains_1, cluster_break = dom_build.build_domains(self.protein_1.slide_window_residues, temp_segments,
+                                                                    self.min_domain_size)
+            # self.print_domains(temp_domains_1, current_k)
             temp_fixed_domain_id = self.check_domain_connectivity(temp_domains_1)
             # Perform mass-weighted whole-protein best fit to obtain a new set of Protein 2 coordinates after
             # superposition Protein 2 onto Protein 1
@@ -55,20 +62,22 @@ class Clusterer:
             ratio_met = self.check_ratios(transformed_2_on_1, temp_domains_1, temp_fixed_domain_id)
             if not ratio_met:
                 break
+            else:
+                valid_k_value_found = True
             self.segments = temp_segments
             self.domains = temp_domains_1
             self.fixed_domain = temp_fixed_domain_id
             self.rs = r2
             current_k += 1
 
-    def calc_k_means(self, k, iters):
+    def calc_k_means(self, k):
         """
         Performs KMeans on the rotation vectors
         :param k: Number of resulting clusters
-        :param iters: Number of maximum iterations
         :return: KMeans results
         """
-        k_means = KMeans(n_clusters=k, random_state=0, n_init="auto", max_iter=iters).fit(self.rotation_vectors)
+        # k_means = KMeans(n_clusters=k, random_state=0, n_init="auto", max_iter=50).fit(self.rotation_vectors)
+        k_means = KMeans(n_clusters=k, n_init="auto", max_iter=50).fit(self.rotation_vectors)
         return k_means
 
     def determine_segments(self, k):
@@ -82,15 +91,18 @@ class Clusterer:
         # Obtains the labels of the KMeans
         k_mean_labels = self.k_means_results.labels_
         # print(len(k_mean_labels))
-        # Set the first label as the checker to check the labels
+        # Set the first label as the label checker
         current_element_to_check = k_mean_labels[0]
         start_index = 0
         end_index = 0
+
         # This line of code to declare and initialise a dictionary of lists does not work as it will end up
         # appending to all lists.
         # segment_indices = dict.fromkeys(range(0, k), [])
+
         # This is the correct way to initialise a dictionary of lists
         segment_indices = {key: np.array([[]], dtype=int) for key in range(k)}
+
         # Iterate through each label
         for i in range(len(k_mean_labels)):
             # When the label is not equal to the checker. It means the segment ends there and the segment's start and
@@ -107,7 +119,18 @@ class Clusterer:
                 segment_indices[current_element_to_check] = temp
                 # segment_indices[current_element_to_check].append((start_index, i))
             end_index = i
-        return segment_indices
+
+        # We can assume that every segment is a domain at the start.
+        all_domains_too_small = False
+        # Checks whether each cluster's segments have minimum domain size. If all segments in a cluster are less than
+        # minimum domain size, it means that the clustering will stop.
+        for indices in segment_indices.values():
+            num_residues = indices[:, 1] + 1 - indices[:, 0]
+            if not any(num_residues > 20):
+                all_domains_too_small = True
+                break
+
+        return segment_indices, all_domains_too_small
 
     def check_domain_connectivity(self, domains):
         """
@@ -313,7 +336,7 @@ class Clusterer:
         res_total = 0
         total_small_segments = 0
         for k, v in segments.items():
-            print(f"Cluster {k} - {len(v)} Segments")
+            print(f"Cluster {k} : {len(v)} Segments")
             print(f"Values {v}")
             res_count = 0
             seg_count += v.shape[0]
@@ -327,15 +350,15 @@ class Clusterer:
         print("---------------------------------------")
         print(f"Seg total = {seg_count}")
         print(f"Res total = {res_total}")
-        print(f"Total small segments = {total_small_segments}")
         print("SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS")
         return
 
-    def print_domains(self, domains):
+    def print_domains(self, domains, k):
         print("DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD")
         print("Printing domains")
         for d in domains:
             print(d)
+            FileMngr.write_details_to_file(f"{self.protein_1.id}_{self.protein_2.id}_{k}", "a", str(d))
         print("DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD")
 
     def print_coords(self, transformed_1, transformed_2):

@@ -4,79 +4,47 @@ from sklearn.neighbors import KDTree
 
 from Domain import Domain
 
-backbone_atoms = ["N", "CA", "C", "O"]
-
 
 def build_domains(slide_window_residues: list, segments_dict: dict, min_domain: int):
     """
     Creates the domains in each cluster.
     :return: List of Domain objects
     """
+    print("============================================")
+    print("Building domains")
     domains = []
     break_cluster = False
-    # print(segments_dict)
     # For each cluster and their segments
     for cluster, cluster_segments in segments_dict.items():
+        # print(f"Cluster {cluster} = {cluster_segments}")
         # Create a binary connection matrix
-        print("============================================")
-        print(f"Cluster {cluster} = {cluster_segments}")
         bin_mat = create_bin_conn_mat(slide_window_residues, cluster_segments)
-        print(f"Binary Matrix: ")
+        # print(f"Binary Matrix: ")
         # print(f"{bin_mat}")
-        # List of Numpy arrays
+        # List of Numpy arrays of the binary connection matrix after reduction
         reduced_mat = row_reduction(bin_mat)
-        print(f"Reduced Matrix: {reduced_mat}")
-        # domains, unused_segments = create_domains(cluster_segments=cluster_segments, min_dom_size=min_domain,
-        #                                           domains=domains, reduced_mat=reduced_mat, unused=unused_segments)
-        domains, min_dom_not_met = create_domains(cluster_segments=cluster_segments, min_dom_size=min_domain,
-                                                  domains=domains, reduced_mat=reduced_mat)
+        # print(f"Reduced Matrix: {reduced_mat}")
+        domains = create_domains(cluster_segments=cluster_segments, domains=domains,
+                                 reduced_mat=reduced_mat, cluster_id=cluster)
 
-        if (not break_cluster) and min_dom_not_met:
-            break_cluster = True
-
-        # print(f"Unused = {unused_segments}")
         # print("--------------------------------------------")
 
-    if break_cluster:
-        # print(f"Final Domains = {domains}")
-        # print(f"Final Unused = {unused_segments}")
-        # domains = join_segments(domains, unused_segments)
-        domains = join_segments(domains)
+    print_domains(domains)
+
+    domains_to_remove = []
+    for domain in domains:
+        if domain.num_residues < min_domain:
+            domains = join_domains(domain,  domains)
+            domains_to_remove.append(domain.domain_id)
+
+    if len(domains_to_remove) > 0:
+        new_domains = remove_domains(domains, domains_to_remove)
+        print_domains(new_domains, True)
+        return new_domains, break_cluster
+
+    print_domains(domains, True)
 
     return domains, break_cluster
-
-
-def get_residue_atoms_coordinates(residue: gemmi.Residue):
-    """
-    Get coordinates of all atoms of specified residue and checks whether residue contains side chains (Residues
-    containing more than N, CA, C, and O).
-    :param residue:
-    :return:
-    """
-    side_chain = False
-    if len(residue) > 4:
-        side_chain = True
-    atoms_pos = np.array([[a.pos.x, a.pos.y, a.pos.z] for a in residue])
-    return atoms_pos, side_chain
-
-
-def get_segment_atoms_coordinates(residues: list):
-    """
-    Gets the residues' atom coordinates
-    :param residues:
-    :return:
-    """
-    atoms_pos = np.array([np.asarray(a.pos.tolist()) for res in residues for a in res])
-    return atoms_pos
-
-
-def check_connection_between_atoms(residue_atoms: np.array, segment_atoms: np.array, side_chain=False):
-    dist_criteria = 4 if side_chain else 10
-    # euclidean, l2, minkowski, p, manhattan, cityblock, l1, chebyshev, infinity
-    kdt = KDTree(segment_atoms, metric="euclidean")
-    count = kdt.query_radius(residue_atoms, r=dist_criteria, count_only=True)
-    # print(f"Count: {count} {True if any(c > 0 for c in count) else False}")
-    return True if any(c > 0 for c in count) else False
 
 
 def create_bin_conn_mat(residues: list, segments: np.array):
@@ -90,7 +58,7 @@ def create_bin_conn_mat(residues: list, segments: np.array):
     # Binary connection matrix that stores which segments are connected
     bin_conn_mat = np.zeros((segments.shape[0], segments.shape[0]), dtype=int)
     curr_segment = 0
-    # Go through each segment
+    # Go through each segment.
     while curr_segment < segments.shape[0]:
         # Get the start and end indices of the current residues segment
         curr_segment_start_index = segments[curr_segment][0]
@@ -104,12 +72,12 @@ def create_bin_conn_mat(residues: list, segments: np.array):
             # Get the start and end indices of the segment to be checked
             checked_segment_start_index = segments[s][0]
             checked_segment_end_index = segments[s][1] + 1
-            # Get coordinates of all atoms from every residue in the segment to be checked
-            segment_atoms_coordinates = get_segment_atoms_coordinates(residues[checked_segment_start_index:checked_segment_end_index])
+            # Get coordinates of all atoms from every residue in the to-be-check segment
+            checked_segment_atoms_coordinates = get_segment_atoms_coordinates(residues[checked_segment_start_index:checked_segment_end_index])
             # Checks the distances between the segments
             for r in range(curr_segment_start_index, curr_segment_end_index):
                 residue_atoms_coordinates, has_side_chain = get_residue_atoms_coordinates(residues[r])
-                is_connected = check_connection_between_atoms(residue_atoms_coordinates, segment_atoms_coordinates,
+                is_connected = check_connection_between_atoms(residue_atoms_coordinates, checked_segment_atoms_coordinates,
                                                               has_side_chain)
                 if is_connected:
                     bin_conn_mat[curr_segment][s] = 1
@@ -156,136 +124,110 @@ def row_reduction(matrix):
     return connections_list
 
 
-# def create_domains(cluster_segments: list, min_dom_size: int, domains: list, reduced_mat: list, unused: list):
-#     new_domains = domains
-#     new_unused = unused
-#     min_dom_not_met = False
-#     for rows in reduced_mat:
-#         segments = np.array([cluster_segments[r] for r in rows])
-#         if check_segments_size(segments, min_dom_size):
-#             domain = Domain(len(domains), segments)
-#             new_domains.append(domain)
-#         else:
-#             new_unused += [s for s in segments]
-#     return new_domains, new_unused
-
-
-def create_domains(cluster_segments: list, min_dom_size: int, domains: list, reduced_mat: list):
+def create_domains(cluster_segments: list, domains: list, reduced_mat: list, cluster_id: int):
+    """
+    Create domains based on the segments
+    :param cluster_segments:
+    :param domains:
+    :param reduced_mat:
+    :param cluster_id:
+    :return:
+    """
     new_domains = domains
-    min_dom_not_met = False
     # For each row in the reduction matrix
     for rows in range(len(reduced_mat)):
         # Get the segment for the cluster
         segments = np.array([cluster_segments[r] for r in reduced_mat[rows]])
-        domain = Domain(rows, len(domains), segments)
-        if domain.num_residues < min_dom_size:
-            min_dom_not_met = True
+        domain = Domain(cluster_id, len(domains), segments)
         new_domains.append(domain)
-    return new_domains, min_dom_not_met
-
-
-def check_segments_size(segments: np.array, min_domain_size: int):
-    # segments_sum = np.sum([s[1] + 1 - s[0] for s in segments])
-    segments_sum = sum(segments[:, 1] + 1 - segments[:, 0])
-    return True if segments_sum >= min_domain_size else False
-    # for segment in segments:
-    #     count += segment[1] + 1 - segment[0]
-    #     if count >= min_domain_size:
-    #         return True
-    # return False
-
-
-def join_segments(domains: list):
-    """
-    Joins by checking where the segment connects at
-    Takes any unused segments and
-    :param domains: List of Domain objects
-    :return domains: Updated List of Domain objects
-    """
-    new_domains = domains
-    domains_to_remove = []
-    for curr_d in range(len(domains)):
-        print(f"{domains[curr_d].segments} - {domains[curr_d].num_residues}")
-        if domains[curr_d].segments.shape[0] < 2 and domains[curr_d].num_residues < 20:
-            print(f"Use {domains[curr_d].segments}")
-            domains_to_remove.append(curr_d)
-            segment = domains[curr_d].segments[0]
-            prev_index = segment[0] - 1
-            next_index = segment[1] + 1
-            for checked_d in range(len(new_domains)):
-                if checked_d == curr_d:
-                    continue
-                print(f"Min = {np.min(new_domains[checked_d].segments)}")
-                print(f"Max = {np.max(new_domains[checked_d].segments)}")
-                if np.max(new_domains[checked_d].segments) == prev_index:
-                    new_domains[checked_d].add_segment(segment)
-                    continue
-                if np.min(new_domains[checked_d].segments) == next_index:
-                    new_domains[checked_d].add_segment(segment)
-                    continue
-    for i in reversed(domains_to_remove):
-        new_domains.pop(i)
-    for i in range(len(new_domains)):
-        new_domains[i].domain_id = i
     return new_domains
 
 
-# def join_segments(domains: list, unused: np.array):
-#     """
-#     Joins by checking where the segment connects at
-#     Takes any unused segments and
-#     :param domains: List of Domain objects
-#     :param unused: Numpy array of segments
-#     :return:
-#     """
-#     new_domains: list = domains
-#     for u in unused:
-#         # print("=============================")
-#         # print(u)
-#         prev_index = u[0] - 1
-#         next_index = u[1] + 1
-#         min_values = np.array([np.min(d.segments) for d in domains])
-#         max_values = np.array([np.max(d.segments) for d in domains])
-#         # print(f"Min = {min_values}")
-#         # print(f"Max = {max_values}")
-#         if prev_index > np.max(max_values):
-#             # print("Prev More")
-#             new_domains[np.argmax(max_values)].add_segment(u)
-#             continue
-#         if next_index < np.min(min_values):
-#             # print("Next Less")
-#             new_domains[np.argmin(min_values)].add_segment(u)
-#             continue
-#         prev_index_domain, next_index_domain = None, None
-#         prev_hit, next_hit = False, False
-#         added = False
-#         # Joins the unused segment
-#         for d in range(len(domains)):
-#             # print(f"{d} : ({prev_index}, {next_index})")
-#             segments: np.array = domains[d].segments
-#             pi, pj = np.where(segments == prev_index)
-#             ni, nj = np.where(segments == next_index)
-#             # print(f"P = {pi}, {pj}")
-#             # print(f"N = {ni}, {nj}")
-#             if len(pi) > 0 and len(pj) > 0:
-#                 prev_index_domain = d
-#                 prev_hit = True
-#             if len(ni) > 0 and len(nj) > 0:
-#                 next_index_domain = d
-#                 next_hit = True
-#             if prev_hit and next_hit:
-#                 if prev_index_domain == next_index_domain:
-#                     # print(f"Domain {prev_index_domain} add {u}")
-#                     new_domains[prev_index_domain].add_segment(u)
-#                 else:
-#                     new_domains[next_index_domain].add_segment(u)
-#                 added = True
-#                 break
-#         if not added:
-#             if prev_hit:
-#                 new_domains[prev_index_domain].add_segment(u)
-#             elif next_hit:
-#                 new_domains[next_index_domain].add_segment(u)
-#     # print(f"New Domains = {new_domains}")
-#     return new_domains
+def join_domains(tiny_domain: Domain, domains: list):
+    """
+    Takes the tiny domain's (smaller than minimum domain size) segments and absorbs it into another domain.
+    :param tiny_domain: Domain that is smaller than minimum domain size
+    :param domains: List of Domain objects
+    :return new_domains: Updated List of Domain objects
+    """
+    tiny_domain_segments = tiny_domain.segments
+
+    # Goes through each segment of the tiny domain
+    for ts in range(tiny_domain_segments.shape[0]):
+        # First obtain the indices of the previous and next residues connected to the segments
+        prev_connecting_index = tiny_domain_segments[ts][0] - 1
+        next_connecting_index = tiny_domain_segments[ts][1] + 1
+        if prev_connecting_index == -1:
+            for curr_d in domains:
+                if next_connecting_index in domains[curr_d].segments:
+                    domains[curr_d].add_segment(tiny_domain_segments[ts], use_end_index=True)
+                    print("Done")
+                    break
+            continue
+        # Going through the other domains
+        for d in range(len(domains)):
+            # Ignore any domains that are from the same cluster as the tiny domain. Ignore the identical domain as well.
+            if domains[d].cluster_id == tiny_domain.cluster_id or domains[d].domain_id == tiny_domain.domain_id:
+                continue
+
+            if prev_connecting_index in domains[d].segments:
+                domains[d].add_segment(tiny_domain_segments[ts])
+                break
+
+    return domains
+
+
+def remove_domains(domains: list, domains_to_remove: list):
+    """
+    Removes domains that smaller than minimum domain size
+    :param domains: List of Domains
+    :param domains_to_remove: IDs of the to-be-removed domains in the list
+    :return: new_domains
+    """
+    new_domains = []
+    for domain in domains:
+        if domain.domain_id in domains_to_remove:
+            continue
+        new_domains.append(domain)
+
+    return new_domains
+
+
+def get_segment_atoms_coordinates(residues: list):
+    """
+    Gets the residues' atom coordinates
+    :param residues:
+    :return:
+    """
+    atoms_pos = np.array([np.asarray(a.pos.tolist()) for res in residues for a in res])
+    return atoms_pos
+
+
+def get_residue_atoms_coordinates(residue: gemmi.Residue):
+    """
+    Get coordinates of all atoms of specified residue and checks whether residue contains side chains (Residues
+    containing more than N, CA, C, and O).
+    :param residue:
+    :return:
+    """
+    side_chain = False
+    if len(residue) > 4:
+        side_chain = True
+    atoms_pos = np.array([[a.pos.x, a.pos.y, a.pos.z] for a in residue])
+    return atoms_pos, side_chain
+
+
+def check_connection_between_atoms(residue_atoms: np.array, segment_atoms: np.array, side_chain=False):
+    dist_criteria = 4 if side_chain else 10
+    # euclidean, l2, minkowski, p, manhattan, cityblock, l1, chebyshev, infinity
+    kdt = KDTree(segment_atoms, metric="euclidean")
+    count = kdt.query_radius(residue_atoms, r=dist_criteria, count_only=True)
+    # print(f"Count: {count} {True if any(c > 0 for c in count) else False}")
+    return True if any(c > 0 for c in count) else False
+
+
+def print_domains(domains: list, after_removal=False):
+    print("After: ") if after_removal else print("Before: ")
+    for d in domains:
+        print(d)
 

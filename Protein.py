@@ -22,7 +22,6 @@ class Protein:
         self.chain_atoms = None
         self.slide_window_residues_indices = None
         self.slide_window_residues = []
-        self.transformation_info = None
         self.get_backbone_atoms()
 
     def get_backbone_atoms(self):
@@ -37,12 +36,6 @@ class Protein:
         elif self.atom_type == "ca":
             for res in self.residue_span:
                 atoms.append(res.sole_atom("CA"))
-        elif self.atom_type == "n":
-            for res in self.residue_span:
-                atoms.append(res.sole_atom("N"))
-        elif self.atom_type == "c":
-            for res in self.residue_span:
-                atoms.append(res.sole_atom("C"))
         self.chain_atoms = np.array(atoms)
 
     def recreate_structure(self):

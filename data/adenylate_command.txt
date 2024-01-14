@@ -6,23 +6,23 @@
 #
 # GIVE A TITLE (ALSO USED FOR NAMING OUTPUT FILES)
 #
-title=4akeA-1akeA.w5
+title=4akeA-2eckB.w5
 #
 # WRITE FILENAME FOR 1ST CHAIN
 #
-filename1=2eck.pdb
+filename1=3k9v.pdb
 #
 # ONE LETTER CODE FOR 1ST CHAIN ID IF IT EXISTS, OTHERWISE LEAVE BLANK
 #
-chain1id=B
+chain1id=A
 #
 # WRITE FILENAME FOR 2ND CHAIN, MAY BE SAME AS FIRST
 #
-filename2=4ake.pdb
+filename2=3k9v.pdb
 #
 # ONE LETTER CODE FOR 2ND CHAIN ID 
 #
-chain2id=A
+chain2id=B
 #
 # WINDOW LENGTH IN NUMBER OF RESIDUES (DEFAULT 5 RESIDUES)
 #
