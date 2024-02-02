@@ -23,7 +23,7 @@ class Engine:
         # Initialise proteins
         self.protein_1: Protein = Protein(first_pdb, self.parameters["chain1id"], self.parameters["atoms"])
         self.protein_2: Protein = Protein(second_pdb, self.parameters["chain2id"], self.parameters["atoms"])
-        self.fitting_protein_2 = None
+        self.fitting_protein_1 = None
         self.main_atoms = []
         if self.parameters["atoms"] == "backbone":
             self.main_atoms = ["N", "CA", "C"]
@@ -71,10 +71,14 @@ class Engine:
             FileMngr.write_rotation_vec_to_pdb(self.protein_1.id, self.protein_1.slide_window_residues,
                                                self.protein_1.slide_window_residues_indices, self.rotation_vecs)
             # self.print_unit_vectors()
-            self.clusterer: Clusterer = Clusterer(self.parameters, self.rotation_vecs,
-                                                  self.protein_1, self.protein_2, self.main_atoms)
-            self.clusterer.cluster()
-            # self.clusterer.print()
+            cluster_status = 1
+            while cluster_status != 0:
+                self.clusterer: Clusterer = Clusterer(self.parameters, self.rotation_vecs,
+                                                      self.protein_1, self.protein_2, self.main_atoms)
+                cluster_status = self.clusterer.cluster()
+                if cluster_status == -1:
+                    self.parameters["window"] = self.parameters["window"] + 2
+            self.determine_domains_screw_axis()
 
         else:
             print("Unable to compare sequences.")
@@ -83,16 +87,44 @@ class Engine:
 
     def check_chain_compatibility_and_length(self):
         """
-        Checks whether the residues sequence of Protein 1 and Protein 2 are similar
-        :return: The percentage of similarity of the 2 protein residue sequences (Between 0 and 1)
+        Checks whether the residues sequence of Protein 1 and Protein 2 are similar. The function also checks whether
+        the chains are of the same length. If they are not but the difference is small, remove some residues.
+        Note: Need to find a way to check which residues to remove.
+        :return: Boolean on whether the chains are compatible
         """
-        residues_1 = [res.name for res in self.protein_1.residue_span]
-        residues_2 = [res.name for res in self.protein_2.residue_span]
-        sm = difflib.SequenceMatcher(None, residues_1, residues_2)
-        if self.protein_1.chain_atoms.shape[0] == self.protein_2.chain_atoms.shape[0] and sm.ratio() > 0.4:
+        # residues_1 = [res.name for res in self.protein_1.residue_span]
+        # residues_2 = [res.name for res in self.protein_2.residue_span]
+        # sm = difflib.SequenceMatcher(None, residues_1, residues_2)
+        # if self.protein_1.chain_atoms.shape[0] == self.protein_2.chain_atoms.shape[0] and sm.ratio() > 0.4:
+
+        # If the protein chains have identical lengths, then nothing else needs to be done.
+        if self.protein_1.chain_atoms.shape[0] == self.protein_2.chain_atoms.shape[0]:
+            window_size = int(self.parameters["window"])
+            window_mid_index = start_index = (window_size - 1) // 2
+            protein_1_residues_length = len(self.protein_1.get_polymer())
+            # The index of the middle residue in the last sliding window
+            final_index = protein_1_residues_length + 1 - (window_size - window_mid_index)
+            self.protein_1.slide_window_residues_indices = (start_index, final_index)
+            self.protein_2.slide_window_residues_indices = (start_index, final_index)
             return True
-        else:
+
+        if abs(self.protein_2.chain_atoms.shape[0] - self.protein_1.chain_atoms.shape[0]) > 5:
+            print("Chains are too different. AKA: One of them is too long.")
             return False
+        else:
+            window_size = int(self.parameters["window"])
+            window_mid_index = start_index = (window_size - 1) // 2
+            if self.protein_1.chain_atoms.shape[0] < self.protein_2.chain_atoms.shape[0]:
+                protein_1_residues_length = len(self.protein_1.get_polymer())
+                # The index of the middle residue in the last sliding window
+                final_index = protein_1_residues_length + 1 - (window_size - window_mid_index)
+            else:
+                protein_2_residues_length = len(self.protein_2.get_polymer())
+                # The index of the middle residue in the last sliding window
+                final_index = protein_2_residues_length + 1 - (window_size - window_mid_index)
+            self.protein_1.slide_window_residues_indices = (start_index, final_index)
+            self.protein_2.slide_window_residues_indices = (start_index, final_index)
+            return True
 
     def superimpose_chains(self):
         """
@@ -100,12 +132,25 @@ class Engine:
         :return: Protein 2 chain after transformation
         """
         ptype = self.protein_1.residue_span.check_polymer_type()
-        fit_2_to_1_result: gemmi.SupResult = gemmi.calculate_superposition(self.protein_1.residue_span,
-                                                                           self.protein_2.residue_span,
-                                                                           ptype, gemmi.SupSelect.MainChain)
-        self.chain_superimpose_result = fit_2_to_1_result
-        self.fitting_protein_2: gemmi.ResidueSpan = self.protein_2.get_polymer()
-        self.fitting_protein_2.transform_pos_and_adp(fit_2_to_1_result.transform)
+
+        protein_1 = self.protein_1.get_polymer()
+        coords_1 = [r.sole_atom(a).pos for r in protein_1 for a in self.main_atoms]
+        protein_2 = self.protein_2.get_polymer()
+        coords_2 = [r.sole_atom(a).pos for r in protein_2 for a in self.main_atoms]
+
+        # fit_1_to_2_result: gemmi.SupResult = gemmi.calculate_superposition(self.protein_2.get_slide_window_result(),
+        #                                                                    self.protein_1.get_slide_window_result(),
+        #                                                                    ptype, gemmi.SupSelect.MainChain)
+        fit_1_to_2_result: gemmi.SupResult = gemmi.superpose_positions(coords_2, coords_1)
+        self.chain_superimpose_result = fit_1_to_2_result
+        self.fitting_protein_1: gemmi.ResidueSpan = self.protein_1.get_polymer()
+        self.fitting_protein_1.transform_pos_and_adp(fit_1_to_2_result.transform)
+        # print(f"Count = {fit_1_to_2_result.count}")
+        # print(f"Center 1 = {fit_1_to_2_result.center1}")
+        # print(f"Center 2 = {fit_1_to_2_result.center2}")
+        # print(f"RMSD = {fit_1_to_2_result.rmsd}")
+        # print(f"Rotation = {fit_1_to_2_result.transform.mat}")
+        # print(f"Translation = {fit_1_to_2_result.transform.vec}")
 
     def sliding_window_superimpose_residues(self):
         """
@@ -113,11 +158,9 @@ class Engine:
         residues inside the window and getting indices of each residue located in the middle of each window.
         :return:
         """
-        residues_length = len(self.fitting_protein_2)  # The number of residues in Protein S
+        residues_length = len(self.fitting_protein_1)  # The number of residues in Protein S
         window_size = int(self.parameters["window"])
-        # The index of the middle residue of the window
-        window_mid_index = start_index = (window_size - 1) // 2
-        target_protein_polymer = self.protein_1.get_polymer()  # The protein that Protein S will superimpose onto.
+        target_protein_polymer = self.protein_2.get_polymer()  # The protein that Protein S will superimpose onto.
 
         # Only used if the window size ends up becoming larger or equal to the length of the chain. Hopefully, this
         # condition isn't met since the length of a protein chain is quite long.
@@ -133,70 +176,31 @@ class Engine:
             for r in range(len(target_protein_polymer)):
                 for a in self.main_atoms:
                     target_protein_polymer_atoms_pos.append(target_protein_polymer[r].sole_atom(a).pos)
-                    fitting_protein_polymer_atoms_pos.append(self.fitting_protein_2[r].sole_atom(a).pos)
+                    fitting_protein_polymer_atoms_pos.append(self.fitting_protein_1[r].sole_atom(a).pos)
             self.slide_window_superimpose_results.append(gemmi.superpose_positions(target_protein_polymer_atoms_pos,
                                                                                    fitting_protein_polymer_atoms_pos))
         else:
-            # The index of the middle residue in the last sliding window
-            final_index = residues_length + 1 - (window_size - window_mid_index)
-            indices = (start_index, final_index)
-            self.protein_1.slide_window_residues_indices = indices
-            self.protein_2.slide_window_residues_indices = indices
-            self.get_utilised_residues(indices)
+            self.get_utilised_residues(self.protein_1.slide_window_residues_indices)
             # For each residue in the 2 proteins, get the backbone atoms
-            # Start from the first residue to the last residue of the last sliding window. This means a few residues
-            # at the end of the chain will not be used.
-            for r in range(residues_length - window_size + 1):
+            # Instead of going from the first residue to the last residue of the last sliding window, use the already
+            # calculated slide_window_residues_indices.
+            if window_size % 2 == 1:
+                first_half = second_half = window_size // 2
+            else:
+                first_half = (window_size / 2) - 1
+                second_half = window_size / 2
+            for r in range(self.protein_1.slide_window_residues_indices[0], self.protein_1.slide_window_residues_indices[1]):
                 target_protein_polymer_atoms_pos = []
                 fitting_protein_polymer_atoms_pos = []
-                residue_end_index = r + window_size
-                for i in range(r, residue_end_index):
+                residue_start_index = r - first_half
+                residue_end_index = r + second_half + 1
+                for i in range(residue_start_index, residue_end_index):
                     for a in self.main_atoms:
                         target_protein_polymer_atoms_pos.append(target_protein_polymer[i].sole_atom(a).pos)
-                        fitting_protein_polymer_atoms_pos.append(self.fitting_protein_2[i].sole_atom(a).pos)
+                        fitting_protein_polymer_atoms_pos.append(self.fitting_protein_1[i].sole_atom(a).pos)
                 # Superimpose and append the result to list
                 self.slide_window_superimpose_results.append(gemmi.superpose_positions(target_protein_polymer_atoms_pos,
                                                                                        fitting_protein_polymer_atoms_pos))
-
-    # def sliding_window_superimpose_residues(self, target_protein_polymer: gemmi.ResidueSpan, fitted_protein_id=2):
-    #     residues_length = len(target_protein_polymer)
-    #     window_size = int(self.parameters["window"])
-    #     window_mid_index = start_index = (window_size - 1) // 2
-    #     fitting_protein: Protein = self.protein_1 if fitted_protein_id == 2 else self.protein_2
-    #     fitting_protein_polymer = fitting_protein.get_polymer()
-    #
-    #     if residues_length <= window_size:
-    #         residues_mid_index = (residues_length - 1) // 2
-    #         indices = (residues_mid_index, residues_mid_index + 1)
-    #         self.protein_1.slide_window_residues_indices = indices
-    #         self.protein_2.slide_window_residues_indices = indices
-    #         self.get_utilised_residues(indices)
-    #         ptype = target_protein_polymer.check_polymer_type()
-    #         self.slide_window_superimpose_results.append(gemmi.calculate_superposition(target_protein_polymer,
-    #                                                                                    fitting_protein_polymer,
-    #                                                                                    ptype,
-    #                                                                                    gemmi.SupSelect.MainChain))
-    #
-    #     else:
-    #         final_index = residues_length + 1 - (window_size - window_mid_index)
-    #         indices = (start_index, final_index)
-    #         self.protein_1.slide_window_residues_indices = indices
-    #         self.protein_2.slide_window_residues_indices = indices
-    #         self.get_utilised_residues(indices)
-    #         for r in range(residues_length - window_size + 1):
-    #             target_chain: gemmi.Chain = gemmi.Chain("A")
-    #             fitting_chain: gemmi.Chain = gemmi.Chain("A")
-    #             residue_end_index = r + window_size
-    #             for i in range(r, residue_end_index):
-    #                 target_chain.add_residue(target_protein_polymer[i])
-    #                 fitting_chain.add_residue(fitting_protein_polymer[i])
-    #             target_chain_polymer: gemmi.ResidueSpan = target_chain.get_polymer()
-    #             fitting_chain_polymer: gemmi.ResidueSpan = fitting_chain.get_polymer()
-    #             ptype = target_chain_polymer.check_polymer_type()
-    #             self.slide_window_superimpose_results.append(gemmi.calculate_superposition(target_chain_polymer,
-    #                                                                                        fitting_chain_polymer,
-    #                                                                                        ptype,
-    #                                                                                        gemmi.SupSelect.MainChain))
 
     def get_utilised_residues(self, indices):
         """
@@ -239,13 +243,17 @@ class Engine:
         self.angles_sum = np.sum(self.angles)
         self.scaling = 20 * (self.angles_sum / (self.protein_1.slide_window_residues_indices[1] - self.protein_1.slide_window_residues_indices[0]))
 
-    def determine_screw_axis(self):
-        results = self.clusterer.rs
-        r = results[self.clusterer.fixed_domain]
-        original_slide_chain_1: gemmi.ResidueSpan = self.protein_1.get_slide_window_result()
-        transformed_slide_chain_2: gemmi.ResidueSpan = self.protein_2.get_slide_window_result()
-        transformed_slide_chain_2.transform_pos_and_adp(r.transform)
+    def determine_domains_screw_axis(self):
+        fixed_domain_transformations = self.clusterer.rs
+        original_slide_chain_2: gemmi.ResidueSpan = self.protein_2.get_slide_window_result()
+        transformed_slide_chain_1: gemmi.ResidueSpan = self.protein_1.get_slide_window_result()
+        transformed_slide_chain_1.transform_pos_and_adp(fixed_domain_transformations.transform)
+
+        domain_disp_vecs = []
+
         for domain in self.clusterer.domains:
+            original_domain_chain: gemmi.Chain = gemmi.Chain(self.protein_2.chain_param)
+            transformed_domain_chain: gemmi.Chain = gemmi.Chain(self.protein_1.chain_param)
             if domain.domain_id == self.clusterer.fixed_domain:
                 continue
             original_atoms = []
@@ -253,10 +261,32 @@ class Engine:
             for segment in domain.segments:
                 for s in segment:
                     for i in range(s[0], s[1] + 1):
-                        for a in self.clusterer.backbone_atoms:
-                            original_atoms.append(original_slide_chain_1[i].sole_atom(a).pos)
-                            transformed_atoms.append(transformed_slide_chain_2[i].sole_atom(a).pos)
+                        original_domain_chain.add_residue(original_slide_chain_2[i])
+                        transformed_domain_chain.add_residue(original_slide_chain_2[i])
+                        for a in self.main_atoms:
+                            original_atoms.append(original_slide_chain_2[i].sole_atom(a).pos)
+                            transformed_atoms.append(transformed_slide_chain_1[i].sole_atom(a).pos)
 
+            r: gemmi.SupResult = gemmi.superpose_positions(original_atoms, transformed_atoms)
+            original_domain_residues = original_domain_chain.get_polymer()
+            transformed_domain_residues: gemmi.ResidueSpan = transformed_domain_chain.get_polymer()
+            transformed_domain_residues.transform_pos_and_adp(r.transform)
+            disp_vecs = np.array((len(original_domain_residues), 3))
+            for r in range(len(original_domain_residues)):
+                for a in range(len(self.main_atoms)):
+                    atom_coords = np.asarray(original_domain_residues[r].sole_atom(self.main_atoms[a]).pos.tolist())
+                    transformed_atom_coords = np.asarray(transformed_domain_residues[r].sole_atom(self.main_atoms[a]).pos.tolist())
+                    disp_vecs[(r*3)+a] = atom_coords - transformed_atom_coords
+
+            norm_disp_vecs = disp_vecs / np.linalg.norm(disp_vecs)
+            domain_disp_vecs.append(norm_disp_vecs)
+
+
+
+
+        return
+
+    def determine_external_component_motion(self):
 
         return
 

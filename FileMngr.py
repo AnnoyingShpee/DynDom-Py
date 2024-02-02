@@ -61,14 +61,3 @@ def write_pymol_file(pml_file_name: str, pdb_file_name: str, data):
         return False
     return True
 
-
-def write_details_to_file(pml_file_name: str, write_append, data):
-    try:
-        fw = open(f"{output_pymol_file_path}{pml_file_name}.txt", write_append)
-        fw.write(data)
-        fw.close()
-    except Exception as e:
-        print(e)
-        return False
-    return True
-

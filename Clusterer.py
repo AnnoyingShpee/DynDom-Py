@@ -4,7 +4,7 @@ import gemmi
 from sklearn.cluster import KMeans
 import Protein
 import DomainBuilder as dom_build
-import FileMngr
+from Domain import Domain
 
 
 class Clusterer:
@@ -19,55 +19,82 @@ class Clusterer:
         self.protein_1: Protein = protein_1
         self.protein_2: Protein = protein_2
         self.k_means_results = None
+        self.valid_cluster = 0
         self.segments = {}
-        self.clusters = []
         self.domains = []
-        # The domain id number determining which domain will be the fixed point
-        self.fixed_domain = None
-        # List of gemmi.SupResult objects
+        # gemmi.SupResult object corresponding to the fixed domain
         self.rs = None
+        # The domain ID number determining which domain will be the fixed point
+        self.fixed_domain = None
 
     def cluster(self):
+        fail_limit = 5
         current_k = 2
-        condition_unmet = False
-        domains_valid = False
-        valid_k_value_found = False
-        # while (not finished) and current_k < self.max_k:
-        while current_k < self.max_k and not condition_unmet:
-            print(f"current_k = {current_k}")
-            FileMngr.write_details_to_file(f"{self.protein_1.id}_{self.protein_2.id}_{current_k}", "w", f"{current_k}\n")
+        # This condition determines whether a k-value cluster is valid based on number of residues
+        valid_cluster_found = False
+        # This condition determines whether a valid cluster contains domains that have valid domain pair ratio
+        valid_domains_found = False
+        while current_k < self.max_k:
+            print(f"\ncurrent_k = {current_k}")
             # KMeans the rotation vectors to obtain k number of clusters
             self.k_means_results = self.calc_k_means(current_k)
             # self.print_labels()
             # Obtain the segments from the KMeans results. The segments' indices are for the slide windowed residues.
-            temp_segments, all_domains_small = self.determine_segments(current_k)
+            temp_segments, cluster_residues_small = self.determine_segments(current_k)
+            # If there is a cluster where its total residue is smaller than min domain size:
+            # If there is a previous iteration where valid clusters and valid domain pair ratios are found, clustering
+            # can be halted
             self.print_segments(temp_segments)
-            if not all_domains_small:
-                domains_valid = True
-            if all_domains_small and domains_valid:
-                print("All domains found are smaller than minimum domain size. Clustering halted.")
+            if cluster_residues_small and valid_domains_found:
+                print("Found cluster with number of residues smaller than minimum domain size. Clustering halted.")
                 break
-            elif all_domains_small and not domains_valid:
+            # If there are no previous iterations where domains have been found yet, skip to the next k value
+            if cluster_residues_small and not valid_cluster_found:
+                print("Found cluster with number of residues smaller than minimum domain size. Going to next k value")
+                current_k += 1
+                if current_k > fail_limit:
+                    print("Too many fails. Increasing window size by 2")
+                    return -1
+                continue
+            # If there was a previous iteration where a cluster had domains but the domain pair ratios are invalid,
+            # reset the clustering but this time increase the window size by 2.
+            if cluster_residues_small and valid_cluster_found:
+                print("Found cluster with number of residues smaller than minimum domain size. Valid cluster previously "
+                      "found but no domains. Increasing window size by 2")
+                current_k += 1
+                return -1
+            valid_cluster_found = True
+            # self.print_segments(temp_segments)
+            temp_domains_1, cluster_break = dom_build.build_domains(self.protein_1.slide_window_residues,
+                                                                    self.protein_2.slide_window_residues,
+                                                                    temp_segments, self.min_domain_size)
+            # The first time that a k value produces valid domains for all clusters, set it to true
+            if cluster_break and valid_domains_found:
+                print("All domains found are smaller than minimum domain size. Clustering halted.")
+                return 0
+            elif cluster_break and not valid_cluster_found:
                 print("All domains in the cluster are less than minimum domain size")
                 current_k += 1
                 continue
-            temp_domains_1, cluster_break = dom_build.build_domains(self.protein_1.slide_window_residues, temp_segments,
-                                                                    self.min_domain_size)
+
             # self.print_domains(temp_domains_1, current_k)
             temp_fixed_domain_id = self.check_domain_connectivity(temp_domains_1)
             # Perform mass-weighted whole-protein best fit to obtain a new set of Protein 2 coordinates after
-            # superposition Protein 2 onto Protein 1
-            _, r2, _, transformed_2_on_1 = self.mass_weighted_whole_protein_fit(temp_domains_1)
+            # superimposing Protein 2 slide-window chain onto Protein 1 slide-window chain
+            # _, r2, _, transformed_2_on_1 = self.mass_weighted_whole_protein_fit(temp_domains_1)
+            transformed_2_on_1 = self.mass_weighted_whole_protein_fit(temp_domains_1)
             # self.print_coords(transformed_1_on_2, transformed_2_on_1)
-            ratio_met = self.check_ratios(transformed_2_on_1, temp_domains_1, temp_fixed_domain_id)
+            ratio_met, fixed_domain_r = self.check_ratios(transformed_2_on_1, temp_domains_1, temp_fixed_domain_id)
             if not ratio_met:
-                break
+                current_k += 1
+                continue
             else:
-                valid_k_value_found = True
+                valid_domains_found = True
+            self.valid_cluster = current_k
             self.segments = temp_segments
             self.domains = temp_domains_1
             self.fixed_domain = temp_fixed_domain_id
-            self.rs = r2
+            self.rs = fixed_domain_r
             current_k += 1
 
     def calc_k_means(self, k):
@@ -77,7 +104,7 @@ class Clusterer:
         :return: KMeans results
         """
         # k_means = KMeans(n_clusters=k, random_state=0, n_init="auto", max_iter=50).fit(self.rotation_vectors)
-        k_means = KMeans(n_clusters=k, n_init="auto", max_iter=50).fit(self.rotation_vectors)
+        k_means = KMeans(n_clusters=k, n_init="auto", max_iter=30).fit(self.rotation_vectors)
         return k_means
 
     def determine_segments(self, k):
@@ -113,30 +140,33 @@ class Clusterer:
                 segment_indices[current_element_to_check] = temp
                 current_element_to_check = k_mean_labels[i]
                 start_index = i
+            end_index = i
             if i == len(k_mean_labels) - 1:
                 temp = np.append(segment_indices[current_element_to_check], [[start_index, end_index]],
                                  axis=0 if segment_indices[current_element_to_check].shape[1] > 0 else 1)
                 segment_indices[current_element_to_check] = temp
                 # segment_indices[current_element_to_check].append((start_index, i))
-            end_index = i
 
-        # We can assume that every segment is a domain at the start.
-        all_domains_too_small = False
-        # Checks whether each cluster's segments have minimum domain size. If all segments in a cluster are less than
-        # minimum domain size, it means that the clustering will stop.
+        cluster_residues_too_little = False
+        # Checks whether each cluster's total residues have minimum domain size. If a cluster is less than minimum
+        # domain size, it means that the clustering will stop.
+        # print(f"Values {segment_indices.values()}")
         for indices in segment_indices.values():
+            # print(indices)
             num_residues = indices[:, 1] + 1 - indices[:, 0]
-            if not any(num_residues > 20):
-                all_domains_too_small = True
+            # print(f"Num res = {num_residues}")
+            # print(f"Sum = {sum(num_residues)}")
+            if sum(num_residues) < 20:
+                cluster_residues_too_little = True
                 break
 
-        return segment_indices, all_domains_too_small
+        return segment_indices, cluster_residues_too_little
 
     def check_domain_connectivity(self, domains):
         """
         Takes the domains of one of the protein conformation and determines which domain has the most number of domains
         connected to it.
-        :return chosen_domain: The ID of the domain with the most number of connected domains
+        :return chosen_domain: The ID of the domain with the most connected domains
         """
         num_domains = len(domains)
         if num_domains <= 2:
@@ -182,17 +212,21 @@ class Clusterer:
         weights = []
         coords_1 = []
         coords_2 = []
+
         for d in range(len(domains)):
+            domain_num_atoms = domains[d].num_residues * len(self.backbone_atoms)
             for s in domains[d].segments:
                 for si in range(s[0], s[1] + 1):
                     for a in self.backbone_atoms:
                         coords_1.append(slide_window_1[si].sole_atom(a).pos)
                         coords_2.append(slide_window_2[si].sole_atom(a).pos)
-                        weights.append(1/domains[d].num_residues)
+                        weights.append(1/domain_num_atoms)
 
-        r_1: gemmi.SupResult = gemmi.superpose_positions(coords_2, coords_1, weights)
+        # The superposition result of Protein 1 fitting onto Protein 2
+        # r_1: gemmi.SupResult = gemmi.superpose_positions(coords_2, coords_1, weights)
+        # The superposition result of Protein 2 fitting onto Protein 1
         r_2: gemmi.SupResult = gemmi.superpose_positions(coords_1, coords_2, weights)
-        slide_window_1.transform_pos_and_adp(r_1.transform)
+        # slide_window_1.transform_pos_and_adp(r_1.transform)
         slide_window_2.transform_pos_and_adp(r_2.transform)
         # print(f"Count = {r_2.count}")
         # print(f"Center 1 = {r_2.center1}")
@@ -200,109 +234,102 @@ class Clusterer:
         # print(f"RMSD = {r_2.rmsd}")
         # print(f"Rotation = {r_2.transform.mat}")
         # print(f"Translation = {r_2.transform.vec}")
-        return r_1, r_2, slide_window_1, slide_window_2
-
-    def superimpose_domain_to_transformed(self, residue_span, domains, protein=1):
-        """
-        Superimposes each Protein domain's original residue atoms onto the transformed residue atoms
-        :param domains:
-        :param residue_span: A ResidueSpan object
-        :param protein: The ID of the Protein to be used to superimpose onto residue_span
-        :return results: A list of gemmi.SupResult objects
-        """
-        # List of fitting protein domain chains
-        fitting_domain_chains = []
-        # List of target protein domain chains
-        target_domain_chains = []
-        # List of gemmi.SupResult objects
-        results = []
-        # Get the original chain from the Protein that will be used to superimpose onto the target
-        protein: Protein = self.protein_1 if protein == 1 else self.protein_2
-        slide_chain = protein.get_slide_window_result()
-        for d in range(len(domains)):
-            fitting_chain: gemmi.Chain = gemmi.Chain(protein.chain_param)
-            target_chain: gemmi.Chain = gemmi.Chain(protein.chain_param)
-            # Domain residue atoms as the fitting
-            fitting_coords = []
-            # The transformed residue atoms as the target
-            target_coords = []
-            for s in domains[d].segments:
-                for si in range(s[0], s[1] + 1):
-                    fitting_chain.add_residue(slide_chain[si])
-                    target_chain.add_residue(residue_span[si])
-                    for a in self.backbone_atoms:
-                        fitting_coords.append(slide_chain[si].sole_atom(a).pos)
-                        target_coords.append(residue_span[si].sole_atom(a).pos)
-            fitting_domain_chains.append(fitting_chain)
-            target_domain_chains.append(target_chain)
-            # Superpose the domain residue atoms onto the target residue atoms
-            r = gemmi.superpose_positions(target_coords, fitting_coords)
-            results.append(r)
-        return fitting_domain_chains, target_domain_chains, results
+        # return r_1, r_2, slide_window_1, slide_window_2
+        return slide_window_2
 
     def check_ratios(self, transformed_protein, domains, fixed_domain_id):
         """
         Checks the ratio of internal and external domain movements of each fixed-connected domain pairs.
-        :param transformed_protein: The transformed Protein slide window chain fitted onto the other Protein.
-        :param domains:
-        :param fixed_domain_id:
+        :param transformed_protein: The mass-weight fitted Protein slide window chain onto the other Protein.
+        :param domains: The list of Domain objects
+        :param fixed_domain_id: The id/index of the fixed domain in domains list
         :return:
         """
-        transformed_domain_chains, protein_domain_chains, results = self.superimpose_domain_to_transformed(transformed_protein, domains)
-        fixed_domain_r: gemmi.SupResult = results[fixed_domain_id]
-        fixed_domain_num_residues = domains[fixed_domain_id].num_residues
-        fixed_domain_int_msf = self.calc_domain_int_msf(fixed_domain_num_residues, fixed_domain_r)
+        fixed_domain_r: gemmi.SupResult = self.superimpose_domain(transformed_protein, domains[fixed_domain_id])
+        fixed_domain_num_atoms = domains[fixed_domain_id].num_residues * len(self.backbone_atoms)
+        # fixed_domain_num_atoms = domains[fixed_domain_id].num_residues
+        fixed_domain_int_msf = self.calc_domain_int_msf(fixed_domain_num_atoms, fixed_domain_r)
         fixed_domain_ext_msf = self.calc_domain_ext_msf(domains[fixed_domain_id], fixed_domain_r)
-        for d in range(len(domains)):
-            if d == fixed_domain_id:
+        for domain in domains:
+            if domain.domain_id == fixed_domain_id:
                 continue
-            connected_domain_int_msf = self.calc_domain_int_msf(domains[d].num_residues, results[d])
-            connected_domain_ext_msf = self.calc_domain_ext_msf(domains[d], results[d])
-            ratio = self.calc_ext_int_ratio(fixed_domain_ext_msf, fixed_domain_int_msf, fixed_domain_num_residues,
-                                            connected_domain_ext_msf, connected_domain_int_msf, domains[d].num_residues)
-            print(f"Connected domains ({fixed_domain_id} - {d}) ratio = {ratio}")
+            domain_r: gemmi.SupResult = self.superimpose_domain(transformed_protein, domain)
+            domain_num_atoms = domain.num_residues * len(self.backbone_atoms)
+            # domain_num_atoms = domains[d].num_residues
+            # connected_domain_int_msf = self.calc_domain_int_msf(domains[d].num_residues, results[d])
+            connected_domain_int_msf = self.calc_domain_int_msf(domain_num_atoms, domain_r)
+            connected_domain_ext_msf = self.calc_domain_ext_msf(domain, domain_r)
+            ratio = self.calc_ext_int_ratio(fixed_domain_ext_msf, fixed_domain_int_msf, fixed_domain_num_atoms,
+                                            connected_domain_ext_msf, connected_domain_int_msf, domain_num_atoms)
+            print(f"Connected domains ({fixed_domain_id} - {domain.domain_id}) ratio = {ratio}")
             if ratio < self.min_ratio:
                 print("Ratio below minimum criteria. Break.")
-                return False
-        print("All ratios met the minimum criteria.")
-        return True
+                return False, fixed_domain_r
+        print("All ratios met the minimum criteria. \n")
+        return True, fixed_domain_r
 
-    def calc_domain_int_msf(self, domain_residues: int, r: gemmi.SupResult):
+    def superimpose_domain(self, residue_span, domain: Domain, protein=1):
+        """
+        Superimposes each Protein domain's original residue atoms onto the transformed residue atoms
+        :param domain: Domain object
+        :param residue_span: A ResidueSpan object
+        :param protein: The ID of the Protein to be used to superimpose onto residue_span
+        :return results: A list of gemmi.SupResult objects
+        """
+        # List of gemmi.SupResult objects
+        results = []
+        # Get the original chain from the Protein that will be used to superimpose onto the target
+        protein: Protein = self.protein_1 if protein == 1 else self.protein_2
+        fitting_chain: gemmi.ResidueSpan = protein.get_slide_window_result()
+        # Original residue atoms as the fitting
+        fitting_coords = []
+        # The transformed residue atoms as the target
+        target_coords = []
+        for s in domain.segments:
+            for si in range(s[0], s[1] + 1):
+                for a in self.backbone_atoms:
+                    fitting_coords.append(fitting_chain[si].sole_atom(a).pos)
+                    target_coords.append(residue_span[si].sole_atom(a).pos)
+        # Superpose the domain residue atoms onto the target residue atoms
+        r = gemmi.superpose_positions(target_coords, fitting_coords)
+        return r
+
+    def calc_domain_int_msf(self, domain_atoms: int, r: gemmi.SupResult):
         """
         Calculates the domain's internal Mean Square Fluctuation
-        :param domain_residues: The specified domain's number of residues
+        :param domain_atoms: The specified domain's number of atoms
         :param r: The gemmi.SupResult associated with the domain
         :return:
         """
-        return (r.rmsd ** 2) * domain_residues
+        return (r.rmsd ** 2) * domain_atoms
 
     def calc_domain_ext_msf(self, domain, r, protein_id=1):
         """
         Calculates the domain's external Mean Square Fluctuation. The function first transforms the domain chain using
         the given r, then calculates the displacement vectors between atoms of the original domain chain and the
         transformed domain chain.
-        :param domain: A domain of the chain
+        :param domain: A Domain object
         :param r: The gemmi.SupResult associated with the domain
         :param protein_id: The ID of the Protein used
         :return:
         """
         protein: Protein = self.protein_1 if protein_id == 1 else self.protein_2
         slide_residues = protein.get_slide_window_result()
-        domain_chain: gemmi.Chain = gemmi.Chain(protein.chain_param)
+        original_chain: gemmi.Chain = gemmi.Chain(protein.chain_param)
         transformed_chain: gemmi.Chain = gemmi.Chain(protein.chain_param)
         for s in domain.segments:
             for i in range(s[0], s[1]+1):
-                domain_chain.add_residue(slide_residues[i])
+                original_chain.add_residue(slide_residues[i])
                 transformed_chain.add_residue(slide_residues[i])
         transformed_polymer: gemmi.ResidueSpan = transformed_chain.get_polymer()
         transformed_polymer.transform_pos_and_adp(r.transform)
         ext_msf = 0
-        for r in range(len(domain_chain)):
+        for r in range(len(original_chain)):
             for a in self.backbone_atoms:
-                atom_coords = np.asarray(domain_chain[r].sole_atom(a).pos.tolist())
+                atom_coords = np.asarray(original_chain[r].sole_atom(a).pos.tolist())
                 transformed_atom_coords = np.asarray(transformed_chain[r].sole_atom(a).pos.tolist())
-                disp_vec = (atom_coords - transformed_atom_coords) ** 2
-                sum_disp = np.sum(disp_vec)
+                disp_vec = atom_coords - transformed_atom_coords
+                sum_disp = np.sum(disp_vec ** 2)
                 ext_msf += sum_disp
 
         return ext_msf
@@ -323,6 +350,9 @@ class Clusterer:
             if res_count < self.min_domain_size:
                 return False
         return True
+
+    def renumber_domains(self):
+        pass
 
     def print_labels(self):
         print("Printing Labels...")
@@ -353,14 +383,6 @@ class Clusterer:
         print("SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS")
         return
 
-    def print_domains(self, domains, k):
-        print("DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD")
-        print("Printing domains")
-        for d in domains:
-            print(d)
-            FileMngr.write_details_to_file(f"{self.protein_1.id}_{self.protein_2.id}_{k}", "a", str(d))
-        print("DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD")
-
     def print_coords(self, transformed_1, transformed_2):
         for i in range(len(transformed_1)):
             for a in self.backbone_atoms:
@@ -368,14 +390,4 @@ class Clusterer:
                 print(f"P1 : {self.protein_1.slide_window_residues[i].sole_atom(a).pos} -> {transformed_1[i].sole_atom(a).pos}")
                 print(f"P2 : {self.protein_2.slide_window_residues[i].sole_atom(a).pos} -> {transformed_2[i].sole_atom(a).pos}")
                 print(f"==============================================")
-
-    def print(self):
-        print("Printing Clustered Result")
-        print("=========================================")
-        print("Printing Domains")
-        for d in self.domains:
-            print(d)
-        print(f"Fixed domain ID = {self.fixed_domain}")
-        print("=========================================")
-
 

@@ -5,46 +5,58 @@ from sklearn.neighbors import KDTree
 from Domain import Domain
 
 
-def build_domains(slide_window_residues: list, segments_dict: dict, min_domain: int):
+def build_domains(slide_window_residues_1: list, slide_window_residues_2: list, segments_dict: dict, min_domain: int):
     """
     Creates the domains in each cluster.
     :return: List of Domain objects
     """
     print("============================================")
     print("Building domains")
-    domains = []
+    domains_1 = []
+    domains_2 = []
     break_cluster = False
     # For each cluster and their segments
     for cluster, cluster_segments in segments_dict.items():
         # print(f"Cluster {cluster} = {cluster_segments}")
         # Create a binary connection matrix
-        bin_mat = create_bin_conn_mat(slide_window_residues, cluster_segments)
-        # print(f"Binary Matrix: ")
-        # print(f"{bin_mat}")
+        bin_mat_1 = create_bin_conn_mat(slide_window_residues_1, cluster_segments)
+        bin_mat_2 = create_bin_conn_mat(slide_window_residues_2, cluster_segments)
+        # print(f"Binary Matrix: \n{bin_mat_1}")
         # List of Numpy arrays of the binary connection matrix after reduction
-        reduced_mat = row_reduction(bin_mat)
-        # print(f"Reduced Matrix: {reduced_mat}")
-        domains = create_domains(cluster_segments=cluster_segments, domains=domains,
-                                 reduced_mat=reduced_mat, cluster_id=cluster)
+        reduced_mat_1 = row_reduction(bin_mat_1)
+        # print(f"Reduced Matrix: {reduced_mat_1}")
+        # print(f"Binary Matrix: \n{bin_mat_2}")
+        reduced_mat_2 = row_reduction(bin_mat_2)
+        # print(f"Reduced Matrix: \n{reduced_mat}")
+        domains_1, contains_valid_domains_1 = create_cluster_domains(cluster_segments=cluster_segments,
+                                                                     domains=domains_1, reduced_mat=reduced_mat_1,
+                                                                     min_domain_size=min_domain, cluster_id=cluster)
+        domains_2, contains_valid_domains_2 = create_cluster_domains(cluster_segments=cluster_segments,
+                                                                     domains=domains_2, reduced_mat=reduced_mat_2,
+                                                                     min_domain_size=min_domain, cluster_id=cluster)
 
-        # print("--------------------------------------------")
-
-    print_domains(domains)
+        # If both proteins do not have a valid domain for the cluster, the condition is not met
+        if not (contains_valid_domains_1 or contains_valid_domains_2):
+            break_cluster = True
+            return domains_1, break_cluster
 
     domains_to_remove = []
-    for domain in domains:
+
+    # print_domains(domains_1)
+
+    for domain in domains_1:
         if domain.num_residues < min_domain:
-            domains = join_domains(domain,  domains)
+            domains_1 = join_domains(domain, domains_1)
             domains_to_remove.append(domain.domain_id)
 
     if len(domains_to_remove) > 0:
-        new_domains = remove_domains(domains, domains_to_remove)
-        print_domains(new_domains, True)
-        return new_domains, break_cluster
+        new_domains_1 = remove_domains(domains_1, domains_to_remove)
+        print_domains(new_domains_1, True)
+        return new_domains_1, break_cluster
 
-    print_domains(domains, True)
+    print_domains(domains_1, True)
 
-    return domains, break_cluster
+    return domains_1, break_cluster
 
 
 def create_bin_conn_mat(residues: list, segments: np.array):
@@ -96,12 +108,14 @@ def row_reduction(matrix):
     :return: A list of Numpy arrays containing indices of the segments
     """
     rows = matrix.shape[0]
+    # This list will store Numpy arrays each containing groups of indices of the segments. These groups correspond to
+    # segments connected with each other
     connections_list: list = []
     # Go through each row sequentially starting from the row with the highest index to the lowest index
     for m in range(rows-1, -1, -1):
         # The current row will be used to perform OR-wise operations on other rows
         or_wise_result = matrix[m]
-        # Go through each index sequentially starting from the current row number to the lowest index
+        # Go through each index (column) sequentially starting from the current row number to the lowest index
         for n in range(m, -1, -1):
             # OR-wise operations must only be done between rows where the location (m, n) in the matrix is 1
             if matrix[m][n] == 1:
@@ -109,38 +123,56 @@ def row_reduction(matrix):
                 list_to_or_wise = matrix[n]
                 # Perform OR wise logical operation between the 2 arrays
                 or_wise_result |= list_to_or_wise
-                # Returns a tuple (a, b) where a is the list of indices of or_wise_result where the element is 1.
+                # Returns tuple (a, b) where a is the list of indices of or_wise_result where the element is 1.
                 # b is empty.
                 results = np.where(or_wise_result == 1)
                 indices_array = results[0]
-                ind = [i for i in range(len(connections_list)) if any(np.isin(indices_array, connections_list[i]))]
+                # ind = [i for i in range(len(connections_list)) if any(np.isin(indices_array, connections_list[i]))]
+                # This is the multi-lined equivalent. Explanation is shown below.
+                ind = []
+                # Go through the connections_list. The first run will always be skipped since connections_list is
+                # empty.
+                for c in range(len(connections_list)):
+                    # Checks if any values in indices_array exists in the Numpy array of connections_list at index c.
+                    if any(np.isin(indices_array, connections_list[c])):
+                        # If yes, append the index to ind
+                        ind.append(c)
+                # If ind is not empty
                 if len(ind) > 0:
+                    # Get the Numpy array at index c of connections_list and append the indices_array to it.
                     temp = np.append(connections_list[ind[0]], indices_array)
+                    # Get the unique values from temp and set it as the new values for connections_list at index c
                     connections_list[ind[0]] = np.unique(temp, return_counts=False)
-                    pass
+                # For the first run (connections_list is empty), just add the first row to the list.
                 else:
                     connections_list.append(indices_array)
 
     return connections_list
 
 
-def create_domains(cluster_segments: list, domains: list, reduced_mat: list, cluster_id: int):
+def create_cluster_domains(cluster_segments: list, domains: list, reduced_mat: list, min_domain_size: int,
+                           cluster_id: int):
     """
     Create domains based on the segments
-    :param cluster_segments:
-    :param domains:
-    :param reduced_mat:
+    :param cluster_segments: The segments of the protein chain for the cluster
+    :param domains: The list of Domain objects
+    :param reduced_mat: The reduced matrix from connected set algorithm
+    :param min_domain_size: Minimum number of residues for a domain
     :param cluster_id:
     :return:
     """
+    # Create a copy of the Domain list
     new_domains = domains
+    contains_valid_domains = False
     # For each row in the reduction matrix
     for rows in range(len(reduced_mat)):
         # Get the segment for the cluster
         segments = np.array([cluster_segments[r] for r in reduced_mat[rows]])
         domain = Domain(cluster_id, len(domains), segments)
+        if domain.num_residues >= min_domain_size:
+            contains_valid_domains = True
         new_domains.append(domain)
-    return new_domains
+    return new_domains, contains_valid_domains
 
 
 def join_domains(tiny_domain: Domain, domains: list):
@@ -185,10 +217,13 @@ def remove_domains(domains: list, domains_to_remove: list):
     :return: new_domains
     """
     new_domains = []
-    for domain in domains:
-        if domain.domain_id in domains_to_remove:
+    domains_added = 0
+    for d in range(len(domains)):
+        if domains[d].domain_id in domains_to_remove:
             continue
-        new_domains.append(domain)
+        domains[d].domain_id = domains_added
+        new_domains.append(domains[d])
+        domains_added += 1
 
     return new_domains
 
@@ -227,7 +262,7 @@ def check_connection_between_atoms(residue_atoms: np.array, segment_atoms: np.ar
 
 
 def print_domains(domains: list, after_removal=False):
-    print("After: ") if after_removal else print("Before: ")
+    print("AAAAAAAAAAA \nAfter: \nAAAAAAAAAAA") if after_removal else print("BBBBBBBBBBBBB \nBefore: \nBBBBBBBBBBBBB")
     for d in domains:
         print(d)
 

@@ -10,7 +10,7 @@ title=4akeA-2eckB.w5
 #
 # WRITE FILENAME FOR 1ST CHAIN
 #
-filename1=3k9v.pdb
+filename1=1adg.pdb
 #
 # ONE LETTER CODE FOR 1ST CHAIN ID IF IT EXISTS, OTHERWISE LEAVE BLANK
 #
@@ -18,7 +18,7 @@ chain1id=A
 #
 # WRITE FILENAME FOR 2ND CHAIN, MAY BE SAME AS FIRST
 #
-filename2=3k9v.pdb
+filename2=2ohx.pdb
 #
 # ONE LETTER CODE FOR 2ND CHAIN ID 
 #
