@@ -14,7 +14,15 @@ def read_command_file(file_name: str):
                 line = line.replace("\n", "")
                 line = line.replace(" ", "")
                 tokens = line.split("=")
-                temp_dict[tokens[0]] = tokens[1]
+                param_name = tokens[0]
+                param_val = tokens[1]
+                if param_name == "window":
+                    param_val = int(tokens[1])
+                elif param_name == "domain":
+                    param_val = int(tokens[1])
+                elif param_name == "ratio":
+                    param_val = float(tokens[1])
+                temp_dict[param_name] = param_val
         fr.close()
     except Exception as e:
         print(e)

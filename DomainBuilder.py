@@ -10,7 +10,6 @@ def build_domains(slide_window_residues_1: list, slide_window_residues_2: list, 
     Creates the domains in each cluster.
     :return: List of Domain objects
     """
-    print("============================================")
     print("Building domains")
     domains_1 = []
     domains_2 = []
