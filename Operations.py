@@ -5,6 +5,7 @@ import FileMngr
 from Clusterer import Clusterer
 from Protein import Protein
 from scipy.spatial.transform import Rotation
+from scipy.stats import multivariate_normal
 
 
 class Engine:
@@ -22,6 +23,8 @@ class Engine:
         # Initialise proteins
         self.protein_1: Protein = Protein(first_pdb, self.parameters["chain1id"], self.parameters["atoms"])
         self.protein_2: Protein = Protein(second_pdb, self.parameters["chain2id"], self.parameters["atoms"])
+        print(len(self.protein_1.get_polymer()))
+        print(len(self.protein_2.get_polymer()))
         self.fitting_protein_1 = None
         self.main_atoms = []
         if self.parameters["atoms"] == "backbone":
@@ -88,20 +91,17 @@ class Engine:
             for screw in screws:
                 print("Screw :")
                 print(screw)
+            bending_residues = self.determine_bending_residues()
             running = False
         return True
 
     def check_chain_length(self):
         """
-        Checks whether the residues sequence of Protein 1 and Protein 2 are similar. The function also checks whether
-        the chains are of the same length. If they are not but the difference is small, remove some residues.
+        Checks whether the residues sequence of Protein 1 and Protein 2 are of the same length.
+        If they are not but the difference is small, remove some residues.
         Note: Need to find a way to check which residues to remove.
         :return: Boolean on whether the chains are compatible
         """
-        # residues_1 = [res.name for res in self.protein_1.residue_span]
-        # residues_2 = [res.name for res in self.protein_2.residue_span]
-        # sm = difflib.SequenceMatcher(None, residues_1, residues_2)
-        # if self.protein_1.chain_atoms.shape[0] == self.protein_2.chain_atoms.shape[0] and sm.ratio() > 0.4:
 
         # If the protein chains have identical lengths, then nothing else needs to be done.
         if self.protein_1.chain_atoms.shape[0] == self.protein_2.chain_atoms.shape[0]:
@@ -385,19 +385,147 @@ class Engine:
         return domain_screw_axes
 
     def determine_bending_residues(self):
-        fixed_domain_segments = self.clusterer.domains[self.clusterer.fixed_domain].segments
-        fixed_domain_rot_vecs = np.array([[]])
-        for i in range(fixed_domain_segments.shape[0]):
+        fixed_domain = self.clusterer.domains[self.clusterer.fixed_domain]
+        fixed_domain_segments = fixed_domain.segments
+        fixed_domain_rot_vecs = self.rotation_vecs[fixed_domain_segments[0][0]:fixed_domain_segments[0][1]]
+
+        # Get the rotation vectors of the fixed domain
+        for i in range(1, fixed_domain_segments.shape[0]):
             rot_vecs = self.rotation_vecs[fixed_domain_segments[i][0]:fixed_domain_segments[i][1]]
-            fixed_domain_rot_vecs = np.append(fixed_domain_rot_vecs, rot_vecs)
+            fixed_domain_rot_vecs = np.append(fixed_domain_rot_vecs, rot_vecs, axis=0)
+        # Calculate mean and standard deviation of the fixed domain rotation vectors
+        fixed_domain_mean = np.mean(fixed_domain_rot_vecs, axis=0)
+        fixed_domain_std = np.std(fixed_domain_rot_vecs)
+        fixed_domain_centered_vecs = fixed_domain_rot_vecs - fixed_domain_mean
+        fixed_domain_covar = np.cov(fixed_domain_centered_vecs.T)
+        fixed_domain_inv_covar = np.linalg.inv(fixed_domain_covar)
+        fixed_domain_var = np.diag(fixed_domain_covar)
+        fixed_domain_dist = multivariate_normal(mean=fixed_domain_mean, cov=fixed_domain_covar)
+        print(f"Fixed Domain Mean = {fixed_domain_mean}")
+        print(f"Fixed Domain STD = {fixed_domain_std}")
+        print(f"Fixed Domain Var = {fixed_domain_var}")
+        print(f"Fixed Domain Covariance = \n{fixed_domain_covar}")
+        print(f"Fixed Domain Inverse Covariance = \n{fixed_domain_inv_covar}")
+
+        # For each dynamic domain,
         for domain in self.clusterer.domains:
             if domain.domain_id == self.clusterer.fixed_domain:
                 continue
-            domain_pair_rot_vecs = fixed_domain_rot_vecs
-            dynamic_domain_segments = domain.segments
-            for i in range(dynamic_domain_segments.shape[0]):
-                rot_vecs = self.rotation_vecs[dynamic_domain_segments[i][0]:dynamic_domain_segments[i][1]]
-                domain_pair_rot_vecs = np.append(domain_pair_rot_vecs, rot_vecs)
+            print(f"Domain {domain.domain_id}")
+            dyn_dom_segments = domain.segments
+            dyn_dom_rot_vecs = self.rotation_vecs[dyn_dom_segments[0][0]:dyn_dom_segments[0][1]]
+
+            for i in range(1, dyn_dom_segments.shape[0]):
+                rot_vecs = self.rotation_vecs[dyn_dom_segments[i][0]:dyn_dom_segments[i][1]]
+                dyn_dom_rot_vecs = np.append(dyn_dom_rot_vecs, rot_vecs, axis=0)
+
+            dyn_dom_mean = np.mean(dyn_dom_rot_vecs, axis=0)
+            dyn_dom_std = np.std(dyn_dom_rot_vecs)
+            dyn_dom_centered_vecs = dyn_dom_rot_vecs - dyn_dom_mean
+            dyn_dom_covar = np.cov(dyn_dom_centered_vecs.T)
+            dyn_dom_inv_covar = np.linalg.inv(dyn_dom_covar)
+            dyn_dom_var = np.diag(dyn_dom_covar)
+            dyn_dom_dist = multivariate_normal(mean=dyn_dom_mean, cov=dyn_dom_covar)
+
+            print(f"Dyn Domain Mean = {dyn_dom_mean}")
+            print(f"Dyn Domain STD = {dyn_dom_std}")
+            print(f"Dyn Domain Var = {dyn_dom_var}")
+            print(f"Dyn Domain Covariance = \n{dyn_dom_covar}")
+            print(f"Dyn Domain Inverse Covariance = \n{dyn_dom_inv_covar}")
+
+            # Calculate the indices of the previous and next residues for each segment of the dynamic domain.
+            dyn_dom_prev_indices = dyn_dom_segments[:, 0] - 1
+            dyn_dom_next_indices = dyn_dom_segments[:, 1] + 1
+
+            # print("Fixed Domain segments: ")
+            # print(fixed_domain.segments)
+            # print("Dyn Dom segments:")
+            # print(dyn_dom_segments)
+            # print("Dyn Dom prev indices: ")
+            # print(dyn_dom_prev_indices)
+            # print("Dyn Dom next indices: ")
+            # print(dyn_dom_next_indices)
+
+            # Get the indices of the fixed domain segments that connects the fixed domain to the dynamic domain.
+            # 1D Array of booleans where True means next index after fixed domain segment is dyn dom segment.
+            fixed_next_is_dyn = np.in1d(fixed_domain.segments[:, 1], dyn_dom_prev_indices)
+            fixed_next_is_dyn_ind = np.where(fixed_next_is_dyn)[0]
+            # 1D Array of booleans where True means previous index before fixed domain segment is dyn dom segment.
+            fixed_prev_is_dyn = np.in1d(fixed_domain.segments[:, 0], dyn_dom_next_indices)
+            fixed_prev_is_dyn_ind = np.where(fixed_prev_is_dyn)[0]
+
+            # Get the indices of the dynamic domain segments that connects the dynamic domain to the fixed domain.
+            # 1D Array of booleans where True means next index after dyn dom segment is fixed domain segment.
+            dyn_next_is_fixed = np.in1d(dyn_dom_next_indices, fixed_domain.segments[:, 0])
+            dyn_next_is_fixed_ind = np.where(dyn_next_is_fixed)[0]
+            # 1D Array of booleans where True means previous index before dyn dom segment is fixed domain segment.
+            dyn_prev_is_fixed = np.in1d(dyn_dom_prev_indices, fixed_domain.segments[:, 1])
+            dyn_prev_is_fixed_ind = np.where(dyn_prev_is_fixed)[0]
+
+            print("Fixed domain segment next index is dyn dom segment: ")
+            print(fixed_next_is_dyn)
+            print(fixed_next_is_dyn_ind)
+            print("Fixed domain segment prev index is dyn dom segment: ")
+            print(fixed_prev_is_dyn)
+            print(fixed_prev_is_dyn_ind)
+
+            print("Dyn dom segment next index is fixed domain segment: ")
+            print(dyn_next_is_fixed)
+            print(dyn_next_is_fixed_ind)
+            print("Dyn dom segment prev index is fixed domain segment: ")
+            print(dyn_prev_is_fixed)
+            print(dyn_prev_is_fixed_ind)
+
+            p = 4.6
+
+            bending_res_indices = set()
+            # Go backwards through the fixed domain residues of the segments
+            for segment_ind in fixed_next_is_dyn_ind:
+                segment = fixed_domain.segments[segment_ind]
+                for i in range(segment[1], segment[1] - 1, -1):
+                    centered_vec = self.rotation_vecs[i] - fixed_domain_mean
+                    q_value = centered_vec @ fixed_domain_inv_covar @ centered_vec
+                    p_value = fixed_domain_dist.pdf(q_value)
+                    print("Backward Fixed Q Value =", q_value, p_value)
+                    if q_value > p:
+                        bending_res_indices.add(i)
+
+            # Go forwards through the dyn dom residues of the segments
+            for segment_ind in dyn_prev_is_fixed_ind:
+                segment = domain.segments[segment_ind]
+                for i in range(segment[1], segment[0] + 1):
+                    centered_vec = self.rotation_vecs[i] - dyn_dom_mean
+                    q_value = centered_vec @ dyn_dom_inv_covar @ centered_vec
+                    p_value = dyn_dom_dist.pdf(q_value)
+                    print("Forward Dyn Q Value =", q_value, ",", p_value)
+                    if q_value > p:
+                        bending_res_indices.add(i)
+
+            # Go forwards through the fixed domain residues of the segments
+            for segment_ind in fixed_prev_is_dyn_ind:
+                segment = fixed_domain.segments[segment_ind]
+                for i in range(segment[0], segment[1] + 1):
+                    centered_vec = self.rotation_vecs[i] - fixed_domain_mean
+                    q_value = centered_vec @ fixed_domain_inv_covar @ centered_vec
+                    p_value = fixed_domain_dist.pdf(q_value)
+                    print("Forward Fixed Q Value =", q_value, p_value)
+                    if q_value > p:
+                        bending_res_indices.add(i)
+
+            # Go backwards through the dyn dom residues of the segments
+            for segment_ind in dyn_next_is_fixed_ind:
+                segment = domain.segments[segment_ind]
+                for i in range(segment[1], segment[0] - 1, -1):
+                    centered_vec = self.rotation_vecs[i] - dyn_dom_mean
+                    q_value = centered_vec @ dyn_dom_inv_covar @ centered_vec
+                    p_value = dyn_dom_dist.pdf(q_value)
+                    print("Backward Dyn Q Value =", q_value, p_value)
+                    # if q_value < p or q_value > 1-p:
+                    if q_value > p:
+                        bending_res_indices.add(i)
+
+            print(bending_res_indices)
+            print(len(bending_res_indices))
 
     def get_fixed_domain_transformations(self):
         slide_window_1 = self.protein_1.get_slide_window_result()

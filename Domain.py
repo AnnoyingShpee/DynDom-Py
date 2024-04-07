@@ -5,7 +5,7 @@ class Domain:
     def __init__(self, cluster_id: int, dom_id: int, segments):
         self.cluster_id = cluster_id
         self.domain_id = dom_id
-        self.segments: np.array = segments
+        self.segments: np.array = np.sort(segments, axis=0)
         self.num_segments = 0
         self.num_residues = 0
         self.count_segments_and_residues()

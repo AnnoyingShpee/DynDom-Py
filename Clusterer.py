@@ -42,7 +42,7 @@ class Clusterer:
             # Obtain the segments from the Hartigan KMeans results.
             # The segments' indices are for the slide windowed residues.
             temp_segments, cluster_residues_small = self.determine_segments()
-            # self.print_segments(temp_segments)
+            self.print_segments(temp_segments)
             # If there is a cluster where its total residue is smaller than min domain size:
             # If there is a previous iteration where valid clusters and valid domain pair ratios are found, clustering
             # can be halted
@@ -69,7 +69,6 @@ class Clusterer:
                 self.clusterer_status = -1
                 return
             valid_cluster_found = True
-            self.print_segments(temp_segments)
             temp_domains, cluster_break = dom_build.build_domains(self.protein_1.slide_window_residues,
                                                                   self.protein_2.slide_window_residues,
                                                                   temp_segments, self.min_domain_size)
@@ -84,9 +83,6 @@ class Clusterer:
                 continue
             # self.print_domains(temp_domains_1, current_k)
             temp_fixed_domain_id = self.check_domain_connectivity(temp_domains)
-            # Perform mass-weighted whole-protein best fit to obtain a new set of Protein 2 coordinates after
-            # superimposing Protein 2 slide-window chain onto Protein 1 slide-window chain
-            # _, r2, _, transformed_2_on_1 = self.mass_weighted_whole_protein_fit(temp_domains_1)
 
             ratio_not_met = False
             for domain in temp_domains:
@@ -129,10 +125,6 @@ class Clusterer:
         current_element_to_check = self.k_means_results[0]
         start_index = 0
         end_index = 0
-
-        # This line of code to declare and initialise a dictionary of lists does not work as it will end up
-        # appending to all lists.
-        # segment_indices = dict.fromkeys(range(0, k), [])
 
         # This is the correct way to initialise a dictionary of lists
         segment_indices = {key: np.array([[]], dtype=int) for key in range(self.current_k)}
@@ -179,7 +171,7 @@ class Clusterer:
         if num_domains <= 2:
             chosen_domain = np.argmax([sum(d.segments[:, 1] + 1 - d.segments[:, 0]) for d in domains])
             return chosen_domain
-        segments = [np.sort(d.segments, axis=0) for d in domains]
+        segments = [d.segments for d in domains]
         connectivity = {d.domain_id: np.array([]) for d in domains}
         for curr_d in domains:
             prev_indices = segments[curr_d.domain_id][:, 0] - 1
@@ -362,9 +354,6 @@ class Clusterer:
             if res_count < self.min_domain_size:
                 return False
         return True
-
-    def renumber_domains(self):
-        pass
 
     def print_labels(self):
         print("Printing Labels...")

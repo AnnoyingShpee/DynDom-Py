@@ -33,6 +33,9 @@ def build_domains(slide_window_residues_1: list, slide_window_residues_2: list, 
         domains_2, contains_valid_domains_2 = create_cluster_domains(cluster_segments=cluster_segments,
                                                                      domains=domains_2, reduced_mat=reduced_mat_2,
                                                                      min_domain_size=min_domain, cluster_id=cluster)
+        print("Cluster: ", cluster)
+        print("Domains 1: \n", domains_1)
+        print("Domains 2: \n", domains_2)
 
         # If both proteins do not have a valid domain for the cluster, the condition is not met
         if not (contains_valid_domains_1 or contains_valid_domains_2):
@@ -40,8 +43,6 @@ def build_domains(slide_window_residues_1: list, slide_window_residues_2: list, 
             return domains_1, break_cluster
 
     domains_to_remove = []
-
-    # print_domains(domains_1)
 
     for domain in domains_1:
         if domain.num_residues < min_domain:

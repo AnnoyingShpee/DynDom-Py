@@ -56,6 +56,33 @@ def write_rotation_vec_to_pdb(file_name: str, slide_window_residues, slide_windo
     return True
 
 
+def write_w5_info_file(file_name: str, protein_1_name:str, protein_2_name: str, param: dict, domains: list,
+                       fixed_domain_id: int):
+    try:
+        fw = open(f"{protein_1_name}{param['chain1id']}_{protein_2_name}{param['chain2id']}.w5_info", "w")
+        fw.write("DynDom Python Version 1.0\n")
+        fw.write(f"{protein_1_name}{param['chain1id']}_{protein_2_name}{param['chain2id']}.w5\n")
+        fw.write(f"file name of conformer 1: {protein_1_name}.pdb\n")
+        fw.write(f"chain id: {param['chain1id']}\n")
+        fw.write(f"file name of conformer 2: {protein_2_name}.pdb\n")
+        fw.write(f"chain id: {param['chain2id']}\n")
+        fw.write(f"window length: {param['window']}\n")
+        fw.write(f"minimum ratio of external to internal motion: {param['ratio']}\n")
+        fw.write(f"minimum domain size: {param['domain']}\n")
+        fw.write(f"atoms to use: {param['atoms']}\n")
+        fw.write(f"THERE ARE {len(domains)} DOMAINS\n")
+        fw.write("================================================================================\n")
+        fw.write("FIXED DOMAIN\n")
+        fw.write(f"DOMAIN NUMBER: \t {fixed_domain_id} (coloured blue for rasmol)\n")
+        fw.write(f"RESIDUE NUMBERS: ")
+
+    except Exception as e:
+        print(e)
+        return False
+    return True
+
+
+
 def write_pymol_file(pml_file_name: str, pdb_file_name: str, data):
     try:
         fw = open(f"{output_pymol_file_path}{pml_file_name}.pml", "w")
