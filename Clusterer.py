@@ -5,6 +5,8 @@ import Protein
 import DomainBuilder as dom_build
 from Domain import Domain
 from hkmeans import HKMeans
+from sklearn.cluster import KMeans
+from FileMngr import read_param_file
 
 
 class Clusterer:
@@ -33,11 +35,12 @@ class Clusterer:
         valid_cluster_found = False
         # This condition determines whether a valid cluster contains domains that have valid domain pair ratio
         valid_domains_found = False
+        param_dict = read_param_file()
         while self.current_k < self.max_k:
             print("============================================")
             print(f"\ncurrent_k = {self.current_k}")
             # KMeans the rotation vectors to obtain k number of clusters
-            self.k_means_results = self.calc_k_means()
+            self.k_means_results = self.calc_k_means(param_dict)
             # self.print_labels()
             # Obtain the segments from the Hartigan KMeans results.
             # The segments' indices are for the slide windowed residues.
@@ -105,12 +108,17 @@ class Clusterer:
                 valid_domains_found = True
             self.current_k += 1
 
-    def calc_k_means(self):
+    def calc_k_means(self, params):
         """
         Performs Hartigan-Wong KMeans on the rotation vectors
         :return: KMeans results
         """
-        k_means = HKMeans(n_clusters=self.current_k, n_init=15, max_iter=300).fit_predict(self.rotation_vectors)
+
+        k_means = HKMeans(
+            n_clusters=self.current_k,
+            n_init=params["k_means_n_init"],
+            max_iter=params["k_means_max_iter"]
+        ).fit_predict(self.rotation_vectors)
         return k_means
 
     def determine_segments(self):

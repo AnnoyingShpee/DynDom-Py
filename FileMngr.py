@@ -29,6 +29,25 @@ def read_command_file(file_name: str):
     return temp_dict
 
 
+def read_param_file():
+    temp_dict = {}
+    try:
+        fr = open(f"{input_command_file_path}param.txt", "r")
+        lines = fr.readlines()
+        for line in lines:
+            if not ("#" in line):
+                line = line.replace("\n", "")
+                line = line.replace(" ", "")
+                tokens = line.split("=")
+                param_name = tokens[0]
+                param_val = tokens[1]
+                temp_dict[param_name] = int(param_val)
+        fr.close()
+    except Exception as e:
+        print(e)
+    return temp_dict
+
+
 def write_rotation_vec_to_pdb(file_name: str, slide_window_residues, slide_window_indices, rotation_vectors):
     """
     Writes the rotation vectors of each residue of the slide window into a pdb file
@@ -80,7 +99,6 @@ def write_w5_info_file(file_name: str, protein_1_name:str, protein_2_name: str, 
         print(e)
         return False
     return True
-
 
 
 def write_pymol_file(pml_file_name: str, pdb_file_name: str, data):

@@ -1,0 +1,5 @@
+# Number of times the k-means algorithm is run with different centroid seeds.
+# The final results is the best output of n_init consecutive runs in terms of inertia.
+k_means_n_init=15
+# Maximum number of iterations of the k-means algorithm for a single run.
+k_means_max_iter=300
