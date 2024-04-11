@@ -1,0 +1,29 @@
+DynDom Python Version 1.0
+4akeA_2eckB.w5
+file name of conformer 1: 4ake.pdb
+chain id: A
+file name of conformer 2: 2eck.pdb
+chain id: B
+window length: 5
+minimum ratio of external to internal motion: 1.0
+minimum domain size: 20
+atoms to use: backbone
+THERE ARE 3 DOMAINS
+================================================================================
+FIXED DOMAIN
+DOMAIN NUMBER: 	 0 (coloured yellow for rasmol)
+RESIDUE NUMBERS: 	0 - 26 , 61 - 113 , 157 - 209
+SIZE: 	133
+BACKBONE RMSD ON THIS DOMAIN: 	1.673642263236752
+------------------------------------------------------------------------------
+MOVING DOMAIN (RELATIVE TO FIXED DOMAIN),  PAIR 1
+DOMAIN NUMBER: 	 1 (coloured green for rasmol)
+RESIDUE NUMBERS: 	114 - 156
+SIZE: 	43
+BACKBONE RMSD ON THIS DOMAIN: 	0.563425468386747
+------------------------------------------------------------------------------
+MOVING DOMAIN (RELATIVE TO FIXED DOMAIN),  PAIR 2
+DOMAIN NUMBER: 	 2 (coloured red for rasmol)
+RESIDUE NUMBERS: 	27 - 60
+SIZE: 	34
+BACKBONE RMSD ON THIS DOMAIN: 	1.6583229228785943
