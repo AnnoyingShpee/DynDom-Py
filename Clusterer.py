@@ -45,7 +45,7 @@ class Clusterer:
             # Obtain the segments from the Hartigan KMeans results.
             # The segments' indices are for the slide windowed residues.
             temp_segments, cluster_residues_small = self.determine_segments()
-            self.print_segments(temp_segments)
+            # self.print_segments(temp_segments)
             # If there is a cluster where its total residue is smaller than min domain size:
             # If there is a previous iteration where valid clusters and valid domain pair ratios are found, clustering
             # can be halted

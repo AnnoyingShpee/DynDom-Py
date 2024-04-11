@@ -1,7 +1,7 @@
 import gemmi
 import numpy as np
+from copy import deepcopy
 from sklearn.neighbors import KDTree
-
 from Domain import Domain
 
 
@@ -26,16 +26,18 @@ def build_domains(slide_window_residues_1: list, slide_window_residues_2: list, 
         # print(f"Reduced Matrix: {reduced_mat_1}")
         # print(f"Binary Matrix: \n{bin_mat_2}")
         reduced_mat_2 = row_reduction(bin_mat_2)
-        # print(f"Reduced Matrix: \n{reduced_mat}")
+        # print(f"Reduced Matrix: \n{reduced_mat_2}")
         domains_1, contains_valid_domains_1 = create_cluster_domains(cluster_segments=cluster_segments,
                                                                      domains=domains_1, reduced_mat=reduced_mat_1,
                                                                      min_domain_size=min_domain, cluster_id=cluster)
         domains_2, contains_valid_domains_2 = create_cluster_domains(cluster_segments=cluster_segments,
                                                                      domains=domains_2, reduced_mat=reduced_mat_2,
                                                                      min_domain_size=min_domain, cluster_id=cluster)
-        print("Cluster: ", cluster)
-        print("Domains 1: \n", domains_1)
-        print("Domains 2: \n", domains_2)
+        # print("Cluster: ", cluster)
+        # print("Protein 1 Domains: \n")
+        # print_domains(domains_1, False)
+        # print("Protein 2 Domains: \n")
+        # print_domains(domains_2, False)
 
         # If both proteins do not have a valid domain for the cluster, the condition is not met
         if not (contains_valid_domains_1 or contains_valid_domains_2):
@@ -47,14 +49,8 @@ def build_domains(slide_window_residues_1: list, slide_window_residues_2: list, 
     for domain in domains_1:
         if domain.num_residues < min_domain:
             domains_1 = join_domains(domain, domains_1)
-            domains_to_remove.append(domain.domain_id)
 
-    if len(domains_to_remove) > 0:
-        new_domains_1 = remove_domains(domains_1, domains_to_remove)
-        print_domains(new_domains_1, True)
-        return new_domains_1, break_cluster
-
-    print_domains(domains_1, True)
+    # print_domains(domains_1, True)
 
     return domains_1, break_cluster
 
@@ -189,11 +185,13 @@ def join_domains(tiny_domain: Domain, domains: list):
         # First obtain the indices of the previous and next residues connected to the segments
         prev_connecting_index = tiny_domain_segments[ts][0] - 1
         next_connecting_index = tiny_domain_segments[ts][1] + 1
+        # If the previous index of the segment is -1, it means the segment is at the tail end of the protein chain.
         if prev_connecting_index == -1:
+            print("Segment is at tail end of protein chain")
             for curr_d in domains:
                 if next_connecting_index in domains[curr_d].segments:
-                    domains[curr_d].add_segment(tiny_domain_segments[ts], use_end_index=True)
-                    print("Done")
+                    print("Found segment to connect tail")
+                    domains[curr_d].add_segment(tiny_domain_segments[ts], add_at_left_side=True)
                     break
             continue
         # Going through the other domains
@@ -206,7 +204,16 @@ def join_domains(tiny_domain: Domain, domains: list):
                 domains[d].add_segment(tiny_domain_segments[ts])
                 break
 
-    return domains
+    new_domains = []
+    domain_count = 0
+    for domain in domains:
+        if domain.domain_id == tiny_domain.domain_id:
+            continue
+        domain.domain_id = domain_count
+        domain_count += 1
+        new_domains.append(domain)
+
+    return new_domains
 
 
 def remove_domains(domains: list, domains_to_remove: list):

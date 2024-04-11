@@ -75,10 +75,10 @@ def write_rotation_vec_to_pdb(file_name: str, slide_window_residues, slide_windo
     return True
 
 
-def write_w5_info_file(file_name: str, protein_1_name:str, protein_2_name: str, param: dict, domains: list,
+def write_w5_info_file(protein_1_name: str, protein_2_name: str, param: dict, domains: list,
                        fixed_domain_id: int):
     try:
-        fw = open(f"{protein_1_name}{param['chain1id']}_{protein_2_name}{param['chain2id']}.w5_info", "w")
+        fw = open(f"output/w5_info/{protein_1_name}{param['chain1id']}_{protein_2_name}{param['chain2id']}.w5_info", "w")
         fw.write("DynDom Python Version 1.0\n")
         fw.write(f"{protein_1_name}{param['chain1id']}_{protein_2_name}{param['chain2id']}.w5\n")
         fw.write(f"file name of conformer 1: {protein_1_name}.pdb\n")
@@ -91,9 +91,48 @@ def write_w5_info_file(file_name: str, protein_1_name:str, protein_2_name: str, 
         fw.write(f"atoms to use: {param['atoms']}\n")
         fw.write(f"THERE ARE {len(domains)} DOMAINS\n")
         fw.write("================================================================================\n")
-        fw.write("FIXED DOMAIN\n")
-        fw.write(f"DOMAIN NUMBER: \t {fixed_domain_id} (coloured blue for rasmol)\n")
-        fw.write(f"RESIDUE NUMBERS: ")
+        for domain in domains:
+            if domain.domain_id == fixed_domain_id:
+                fw.write("FIXED DOMAIN\n")
+                fw.write(f"DOMAIN NUMBER: \t {fixed_domain_id} (coloured yellow for rasmol)\n")
+                residue_str = ""
+                for s in range(domain.segments.shape[0]):
+                    if s == domain.segments.shape[0] - 1:
+                        residue_str += str(domain.segments[s][0]) + " - " + str(domain.segments[s][1])
+                    else:
+                        residue_str += str(domain.segments[s][0]) + " - " + str(domain.segments[s][1]) + " , "
+                fw.write(f"RESIDUE NUMBERS: \t{residue_str}\n")
+                fw.write(f"SIZE: \t{domain.num_residues}\n")
+                fw.write(f"BACKBONE RMSD ON THIS DOMAIN: \t{domain.rmsd}\n")
+                break
+
+        domain_count = 1
+        for domain in domains:
+            if domain.domain_id != fixed_domain_id:
+                fw.write("------------------------------------------------------------------------------\n")
+                fw.write(f"MOVING DOMAIN (RELATIVE TO FIXED DOMAIN),  PAIR {domain_count}\n")
+                domain_count += 1
+                colour_str = ""
+                if domain_count == 1:
+                    colour_str = "blue"
+                elif domain_count == 2:
+                    colour_str = "green"
+                elif domain_count == 3:
+                    colour_str = "red"
+                else:
+                    colour_str = "purple"
+                fw.write(f"DOMAIN NUMBER: \t {domain.domain_id} (coloured {colour_str} for rasmol)\n")
+                residue_str = ""
+                for s in range(domain.segments.shape[0]):
+                    if s == domain.segments.shape[0] - 1:
+                        residue_str += str(domain.segments[s][0]) + " - " + str(domain.segments[s][1])
+                    else:
+                        residue_str += str(domain.segments[s][0]) + " - " + str(domain.segments[s][1]) + " , "
+                fw.write(f"RESIDUE NUMBERS: \t{residue_str}\n")
+                fw.write(f"SIZE: \t{domain.num_residues}\n")
+                fw.write(f"BACKBONE RMSD ON THIS DOMAIN: \t{domain.rmsd}\n")
+
+
 
     except Exception as e:
         print(e)
