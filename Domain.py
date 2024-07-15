@@ -5,24 +5,30 @@ class Domain:
     def __init__(self, cluster_id: int, dom_id: int, segments):
         self.cluster_id = cluster_id
         self.domain_id = dom_id
+        # Array of segments of the Protein 1 chain in the format [start, end] where start is the starting index of the
+        # segment in the chain (Not the residue number) and end is the end index of the segment in the chain (Also not
+        # the residue number).
         self.segments: np.array = np.sort(segments, axis=0)
-        self.num_segments = 0
+        self.arrow_coords = None
         self.num_residues = 0
-        self.count_segments_and_residues()
+        self.count_residues()
         self.fit_result = None
+        self.rot_angle = None
+        self.disp_vec = None
+        self.point_on_axis = None
         self.rmsd = 0
 
     def __str__(self):
-        return f"Domain ID : {self.domain_id} \n" \
+        return f"\nDomain ID : {self.domain_id} \n" \
                f"Cluster ID : {self.cluster_id} \n" \
-               f"Number of Segments : {self.num_segments} \n" \
+               f"Number of Segments : {self.segments.shape[0]} \n" \
                f"Segments List : {self.segments} \n" \
                f"Number of Residues : {self.num_residues}\n"
 
     def __repr__(self):
-        return f"Domain ID : {self.domain_id} \n" \
+        return f"\nDomain ID : {self.domain_id} \n" \
                f"Cluster ID : {self.cluster_id} \n" \
-               f"Number of Segments : {self.num_segments} \n" \
+               f"Number of Segments : {self.segments.shape[0]} \n" \
                f"Segments List : {self.segments} \n" \
                f"Number of Residues : {self.num_residues}\n"
 
@@ -47,6 +53,10 @@ class Domain:
         Domain segments = [[0, 34] [54, 67]]
         :return:
         """
+        print("Adding segment")
+        print(self.segments)
+        print("The segment")
+        print(segment)
         if add_at_left_side:
             # Get the index where the segment joins. There should only be one index found.
             index = np.where(self.segments[:, 0] == (segment[1] + 1))
@@ -71,7 +81,20 @@ class Domain:
         self.segments = np.sort(self.segments, axis=0)
         self.num_residues += segment[1] + 1 - segment[0]
 
-    def count_segments_and_residues(self):
-        self.num_segments = self.segments.shape[0]
+        while True:
+            no_continuous_segments = True
+            for i in range(self.segments.shape[0]-1):
+                if self.segments[i][1] + 1 == self.segments[i+1][0]:
+                    no_continuous_segments = False
+                    self.segments[i][1] = self.segments[i+1][1]
+                    self.segments = np.delete(self.segments, i+1, axis=0)
+                    break
+            if no_continuous_segments:
+                break
+
+        print("After adding")
+        print(self.segments)
+
+    def count_residues(self):
         self.num_residues = sum(self.segments[:, 1] + 1 - self.segments[:, 0])
 

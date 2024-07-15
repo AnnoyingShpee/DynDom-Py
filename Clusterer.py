@@ -4,95 +4,111 @@ import gemmi
 import Protein
 import DomainBuilder as dom_build
 from Domain import Domain
-from hkmeans import HKMeans
 from sklearn.cluster import KMeans
-from FileMngr import read_param_file
+from itertools import groupby
+from operator import itemgetter
 
 
 class Clusterer:
-    def __init__(self, params: dict, rotation_vectors: np.array, protein_1: Protein, protein_2: Protein, main_atoms):
-        # We want a large enough k so that it doesn't get used. If it does manage to get used, good luck.
-        self.max_k = 40
-        self.current_k = 2
-        self.min_domain_size: int = int(params["domain"])
-        self.min_ratio: float = float(params["ratio"])
-        self.backbone_atoms = main_atoms
-        self.num_atoms = len(self.backbone_atoms)
-        self.rotation_vectors: np.array = rotation_vectors
+    def __init__(self, commands: dict, params: dict, rotation_vectors: np.array, protein_1: Protein, protein_2: Protein, main_atoms):
+        self.commands = commands
+        self.parameters = params
         self.protein_1: Protein = protein_1
         self.protein_2: Protein = protein_2
+        # We want a large enough k so that it doesn't get used. If it does manage to get used, good luck. 
+        self.max_k = 40
+        # Start with 2 clusters to do the clustering
+        self.current_k = 2
+        # The k value that is valid for domain building (Number of clusters)
+        self.valid_k = 0
+        # The list of atoms to be used
+        self.atoms_to_use = main_atoms
+        # The number of atoms used in each residue
+        self.num_atoms = len(self.atoms_to_use)
+        # The rotation vectors of the sliding windows
+        self.rotation_vectors: np.array = rotation_vectors
+        # A dictionary containing valid clusters to be used for the domain calculation
+        self.valid_clusters = {}
+        # The clustering result from KMeans
         self.k_means_results = None
-        self.valid_cluster = 0
         self.segments = {}
         self.domains = []
         # The domain ID number determining which domain will be the fixed point
         self.fixed_domain = None
         self.clusterer_status = 1
+        # This condition determines whether a k-value cluster is valid based on number of residues
+        self.valid_cluster_found = False
+        # This condition determines whether a valid cluster contains domains that have valid domain pair ratio
+        self.valid_domains_found = False
 
     def cluster(self):
-        fail_limit = 5
-        # This condition determines whether a k-value cluster is valid based on number of residues
-        valid_cluster_found = False
-        # This condition determines whether a valid cluster contains domains that have valid domain pair ratio
-        valid_domains_found = False
-        param_dict = read_param_file()
+        fails = 0
+        clusters = {0: self.rotation_vectors}
         while self.current_k < self.max_k:
-            print("============================================")
-            print(f"\ncurrent_k = {self.current_k}")
-            # KMeans the rotation vectors to obtain k number of clusters
-            self.k_means_results = self.calc_k_means(param_dict)
+            print("============================================\n")
+            print(f"current_k = {self.current_k}")
+            centroids = self.calc_cluster_centroids(clusters)
+            # KMeans the rotation vectors to obtain k number of clusters of rotation vectors
+            self.k_means_results, clusters = self.calc_k_means(centroids)
             # self.print_labels()
-            # Obtain the segments from the Hartigan KMeans results.
-            # The segments' indices are for the slide windowed residues.
+            # Obtain the segments from the KMeans labels.
+            # The segments' indices are from the slide windowed residues. So the first and last few indices are not included.
             temp_segments, cluster_residues_small = self.determine_segments()
-            # self.print_segments(temp_segments)
+            self.print_segments(temp_segments)
+
             # If there is a cluster where its total residue is smaller than min domain size:
-            # If there is a previous iteration where valid clusters and valid domain pair ratios are found, clustering
-            # can be halted
-            if cluster_residues_small and valid_domains_found:
+
+            if cluster_residues_small and self.valid_domains_found:
+                # If there is a previous iteration where valid clusters and valid domain pair ratios are found, clustering
+                # can be halted
                 print("Found cluster with number of residues smaller than minimum domain size. Clustering halted. ")
-                print(f"Final clusterer to use: {self.valid_cluster}")
+                print(f"Final clusterer to use: {self.valid_k}")
                 self.clusterer_status = 0
                 return
-            # If there are no previous iterations where domains have been found yet, skip to the next k value
-            if cluster_residues_small and not valid_cluster_found:
+            if cluster_residues_small and not self.valid_cluster_found:
+                # If there are no previous iterations where domains have been found yet, skip to the next k value
                 print("Found cluster with number of residues smaller than minimum domain size. Going to next k value")
                 self.current_k += 1
-                if self.current_k > fail_limit:
+                fails += 1
+                if fails > 5:
                     print("Too many fails. Increasing window size by 2")
                     self.clusterer_status = -1
                     return
                 continue
-            # If there was a previous iteration where a cluster had domains but the domain pair ratios are invalid,
-            # reset the clustering but this time increase the window size by 2.
-            if cluster_residues_small and valid_cluster_found:
+            if cluster_residues_small and self.valid_cluster_found:
+                # If there was a previous iteration where a cluster had domains but the domain pair ratios are invalid,
+                # reset the clustering but this time increase the window size by 2.
                 print("Found cluster with number of residues smaller than minimum domain size. Valid cluster previously "
                       "found but no domains. Increasing window size by 2")
-                self.current_k += 1
                 self.clusterer_status = -1
                 return
-            valid_cluster_found = True
-            temp_domains, cluster_break = dom_build.build_domains(self.protein_1.slide_window_residues,
-                                                                  self.protein_2.slide_window_residues,
-                                                                  temp_segments, self.min_domain_size)
+            self.valid_cluster_found = True
+            # Construct the domains from the clusters
+            temp_domains, cluster_break = dom_build.domain_builder(self.protein_1, self.protein_2,
+                                                                   temp_segments, self.parameters["domain"])
             # The first time that a k value produces valid domains for all clusters, set it to true
-            if cluster_break and valid_domains_found:
+            if cluster_break and self.valid_domains_found:
                 print("All domains found are smaller than minimum domain size. Clustering halted.")
                 self.clusterer_status = 0
                 return
-            elif cluster_break and not valid_cluster_found:
+            elif cluster_break and not self.valid_cluster_found:
                 print("All domains in the cluster are less than minimum domain size")
                 self.current_k += 1
                 continue
             # self.print_domains(temp_domains_1, current_k)
-            temp_fixed_domain_id = self.check_domain_connectivity(temp_domains)
+            # Check which domain has the most number of connecting domains. That is the fixed domain
+            temp_fixed_domain_id = self.find_fixed_domain(temp_domains)
 
             ratio_not_met = False
+            # For each dynamic domain, calculate the ratio of interdomain to intradomain motion
             for domain in temp_domains:
+                # Ignore the fixed domain
                 if domain.domain_id == temp_fixed_domain_id:
                     continue
-                transformed_2_domains_on_1 = self.mass_weighted_fit(domain, temp_domains[temp_fixed_domain_id])
-                ratio_met = self.check_ratios(transformed_2_domains_on_1, domain, temp_domains[temp_fixed_domain_id])
+                # Perform a mass-weighted best fit using the dynamic and fixed domains
+                r, transformed_1_domains_on_2 = self.mass_weighted_fit(domain, temp_domains[temp_fixed_domain_id])
+                # Check the ratio of interdomain to intradomain motion
+                ratio_met = self.check_ratios(transformed_1_domains_on_2, domain, temp_domains[temp_fixed_domain_id])
                 if not ratio_met:
                     ratio_not_met = True
                     print("Ratio not met")
@@ -101,57 +117,121 @@ class Clusterer:
                 self.current_k += 1
                 continue
             else:
-                self.valid_cluster = self.current_k
+                self.valid_k = self.current_k
                 self.domains = temp_domains
                 self.fixed_domain = temp_fixed_domain_id
                 self.segments = temp_segments
-                valid_domains_found = True
+                self.valid_domains_found = True
+                self.valid_clusters = clusters
             self.current_k += 1
 
-    def calc_k_means(self, params):
+    def calc_cluster_centroids(self, clusters: dict):
         """
-        Performs Hartigan-Wong KMeans on the rotation vectors
+        Find the initial cluster centroids before performing KMeans clustering.
+        :param clusters: A dictionary of clusters with the cluster IDs being the key, and array of indices being the value.
+        :return:
+        """
+        # Stores the maximum variance
+        max_var = 0
+        # The dimension where the variance is largest (x, y, or z) -> (0, 1, or 2)
+        dimension = None
+        # The cluster ID with the largest variance
+        max_var_cluster = None
+        # The list of centroids for each cluster
+        centroids = []
+        # Each cluster
+        for cluster in clusters:
+            # Get the rotation vectors
+            rotation_vectors: np.array = clusters[cluster]
+            # Calculate the average of the cluster's rotation vectors. This is the centroid and append it to the list.
+            centroids.append(np.average(rotation_vectors, axis=0))
+            # Calculate the dimensional variance of the cluster's rotation vectors
+            variances = np.var(rotation_vectors, axis=0)
+            # If any of the variances is greater than the current max variance,
+            if np.max(variances) > max_var:
+                # Replace the current max variance with the new one
+                max_var = np.max(variances)
+                # Assign the cluster ID to the max variance cluster
+                max_var_cluster = cluster
+                # Get the dimension which has the highest variance
+                dimension = np.argmax(variances)
+
+        # Remove the centroid of the cluster with the highest variance. It will be replaced with 2 new centroids
+        del centroids[max_var_cluster]
+
+        # The rotation vectors of the highest-variance cluster
+        rot_vecs = clusters[max_var_cluster]
+        # The average value of the rotation vectors of one dimension only (The dimension with the highest variance).
+        avg_dim_val = np.average(rot_vecs[:, dimension])
+        # Divide the rotation vectors using the average dimension value.
+        below_avg_rot_vecs = rot_vecs[(rot_vecs[:, dimension] < avg_dim_val)]
+        above_avg_rot_vecs = rot_vecs[(rot_vecs[:, dimension] >= avg_dim_val)]
+        # Calculate the new centroids
+        centroids.append(np.average(below_avg_rot_vecs, axis=0))
+        centroids.append(np.average(above_avg_rot_vecs, axis=0))
+
+        # print("Centroids", centroids)
+        # print("Dimensions:", dimension)
+        # print("Avg:", avg_dim_val)
+        # print("Below Avg:", below_avg_rot_vecs)
+        # print("Above Avg:", above_avg_rot_vecs)
+
+        return centroids
+
+    def calc_k_means(self, centroids="k-means++"):
+        """
+        Performs KMeans on the rotation vectors.
         :return: KMeans results
         """
-
-        k_means = HKMeans(
+        k_means = KMeans(
             n_clusters=self.current_k,
-            n_init=params["k_means_n_init"],
-            max_iter=params["k_means_max_iter"]
-        ).fit_predict(self.rotation_vectors)
-        return k_means
+            n_init=self.parameters["k_means_n_init"],
+            max_iter=self.parameters["k_means_max_iter"],
+            init=centroids
+        ).fit(self.rotation_vectors)
+        clusters = {}
+
+        # Store the rotation vectors corresponding to the clusters
+        for i in range(self.current_k):
+            clusters[i] = self.rotation_vectors[(k_means.labels_ == i)]
+
+        return k_means, clusters
 
     def determine_segments(self):
         """
-        Finds segments in the array of K-Means cluster IDs where the segments contain the same cluster IDs in a row.
-        :return:    A dictionary where the keys are the cluster IDs and the values are a list of tuples (start, end)
-                    where start is the index in k_mean_labels where the segment starts and end is the index in
-                    k_mean_labels where the segment ends.
+        Gets segments from the array of K-Means labels where the segments contain the same cluster ID labels in a row.
+        :return:    A dictionary where the keys are the KMean label cluster IDs and the values are a 2D array of [start, end]
+                    where start and end are the indices in the KMeans labels where the segment starts and end.
         """
-        # print(len(k_mean_labels))
-        # Set the first label as the label checker
-        current_element_to_check = self.k_means_results[0]
+        # Initialise the label checker with the first label
+        current_label_to_check = self.k_means_results.labels_[0]
+        # The starting index of the segment
         start_index = 0
+        # The end index of the segment
         end_index = 0
 
-        # This is the correct way to initialise a dictionary of lists
+        # Initialise the dictionary of arrays to store the segments' indices
         segment_indices = {key: np.array([[]], dtype=int) for key in range(self.current_k)}
 
         # Iterate through each label
-        for i in range(len(self.k_means_results)):
-            # When the label is not equal to the checker. It means the segment ends there and the segment's start and
-            # end indices are obtained and stored.
-            if self.k_means_results[i] != current_element_to_check:
-                temp = np.append(segment_indices[current_element_to_check], [[start_index, end_index]],
-                                 axis=0 if segment_indices[current_element_to_check].shape[1] > 0 else 1)
-                segment_indices[current_element_to_check] = temp
-                current_element_to_check = self.k_means_results[i]
+        for i in range(len(self.k_means_results.labels_)):
+            # When the label is not equal to the checker, it means the segment ends there and a new segment is to be
+            # created.
+            if self.k_means_results.labels_[i] != current_label_to_check:
+                # The segment's start and end indices are obtained and stored.
+                temp = np.append(segment_indices[current_label_to_check], [[start_index, end_index]],
+                                 axis=0 if segment_indices[current_label_to_check].shape[1] > 0 else 1)
+                segment_indices[current_label_to_check] = temp
+                # Set the label checker with the new label found
+                current_label_to_check = self.k_means_results.labels_[i]
+                # Reset the segment's start index
                 start_index = i
             end_index = i
-            if i == len(self.k_means_results) - 1:
-                temp = np.append(segment_indices[current_element_to_check], [[start_index, end_index]],
-                                 axis=0 if segment_indices[current_element_to_check].shape[1] > 0 else 1)
-                segment_indices[current_element_to_check] = temp
+            # This is used if the final label is reached
+            if i == len(self.k_means_results.labels_) - 1:
+                temp = np.append(segment_indices[current_label_to_check], [[start_index, end_index]],
+                                 axis=0 if segment_indices[current_label_to_check].shape[1] > 0 else 1)
+                segment_indices[current_label_to_check] = temp
                 # segment_indices[current_element_to_check].append((start_index, i))
 
         cluster_residues_too_little = False
@@ -169,24 +249,32 @@ class Clusterer:
 
         return segment_indices, cluster_residues_too_little
 
-    def check_domain_connectivity(self, domains):
+    def find_fixed_domain(self, domains):
         """
         Takes the domains of one of the protein conformation and determines which domain has the most number of domains
         connected to it.
-        :return chosen_domain: The ID of the domain with the most connected domains
+        :return chosen_domain:  The index/id of the domain with the most connected domains. Domain ID is the same as the
+                                index of the domain
         """
-        num_domains = len(domains)
-        if num_domains <= 2:
+        # If there are only 2 domains, the fixed domain is the domain with the largest number of residues
+        if len(domains) <= 2:
             chosen_domain = np.argmax([sum(d.segments[:, 1] + 1 - d.segments[:, 0]) for d in domains])
             return chosen_domain
+        # Get the segments from each domain
         segments = [d.segments for d in domains]
-        connectivity = {d.domain_id: np.array([]) for d in domains}
+        # Prepare a dictionary that stores the domain ID as key and the value is an array that will hold other domain
+        # IDs that the domain is connected to
+        connectivity = {d: np.array([]) for d in range(len(domains))}
+        # For each domain
         for curr_d in domains:
+            # Get the indices that are before and after the indices of the domain's segments
             prev_indices = segments[curr_d.domain_id][:, 0] - 1
             next_indices = segments[curr_d.domain_id][:, 1] + 1
+            # For each of the other domains
             for d in domains:
                 if curr_d.domain_id == d.domain_id:
                     continue
+                # Check if any before and after indices are in the segment list of the domain
                 prev_hits = np.in1d(prev_indices, segments[d.domain_id])
                 next_hits = np.in1d(next_indices, segments[d.domain_id])
                 if np.any([prev_hits, next_hits]):
@@ -201,82 +289,78 @@ class Clusterer:
         chosen_domain = max(connectivity, key=connectivity.get)
         return chosen_domain
 
-    def mass_weighted_fit(self, connected_domain: Domain, fixed_domain: Domain):
+    def mass_weighted_fit(self, dynamic_domain: Domain, fixed_domain: Domain):
         """
         Performs a mass-weighted protein best fit on a domain pair to get a new set of coordinates of a domain pair.
-        :param connected_domain: The domain connected to the fixed domain
+        :param dynamic_domain: The domain connected to the fixed domain
         :param fixed_domain: The fixed domain
-        :return r_1:    A SupResult object containing RMSD, Center 1, Center 2, Rotation Matrix, and Translation Vector
-                        of Protein 1
-        :return r_2:    A SupResult object containing RMSD, Center 1, Center 2, Rotation Matrix, and Translation Vector
-                        of Protein 2
+        # :return r_1:    A SupResult object containing RMSD, Center 1, Center 2, Rotation Matrix, and Translation Vector
+        #                 of Protein 1
         :return slide_window_1: The slide window residue chain of Protein 1 after fitting (transformation)
                                 to Protein 2's position
-        :return slide_window_2: The slide window residue chain of Protein 2 after fitting (transformation)
-                                to Protein 1's position
         """
-        slide_window_1 = self.protein_1.get_slide_window_result()
-        slide_window_2 = self.protein_2.get_slide_window_result()
+        slide_window_1 = self.protein_1.get_slide_window_residues()
+        slide_window_2 = self.protein_2.get_slide_window_residues()
+        # Lists to store the backbone atom coordinates of dynamic and fixed domain residues together in Protein 1 and 2.
         coords_1 = []
         coords_2 = []
+        # The weights for each atom
         weights = []
 
-        connected_domain_num_residues = connected_domain.num_residues * len(self.backbone_atoms)
-        fixed_domain_num_residues = fixed_domain.num_residues * len(self.backbone_atoms)
+        # Get number of residues in the dynamic and fixed domains and calculate the weights for the atoms.
+        dynamic_domain_num_atoms = dynamic_domain.num_residues * len(self.atoms_to_use)
+        fixed_domain_num_atoms = fixed_domain.num_residues * len(self.atoms_to_use)
+        dynamic_weight = 1 / dynamic_domain_num_atoms
+        fixed_weight = 1 / fixed_domain_num_atoms
 
-        for s in connected_domain.segments:
+        # In the dynamic domain, get the coordinates of the atoms in the segments and their weights and store into the lists
+        for s in dynamic_domain.segments:
             for i in range(s[0], s[1] + 1):
-                for a in self.backbone_atoms:
+                for a in self.atoms_to_use:
                     coords_1.append(slide_window_1[i].sole_atom(a).pos)
                     coords_2.append(slide_window_2[i].sole_atom(a).pos)
-                    weights.append(1 / connected_domain_num_residues)
+                    weights.append(dynamic_weight)
 
+        # Same with the fixed domain
         for s in fixed_domain.segments:
             for i in range(s[0], s[1] + 1):
-                for a in self.backbone_atoms:
+                for a in self.atoms_to_use:
                     coords_1.append(slide_window_1[i].sole_atom(a).pos)
                     coords_2.append(slide_window_2[i].sole_atom(a).pos)
-                    weights.append(1 / fixed_domain_num_residues)
+                    weights.append(fixed_weight)
 
-        # The superposition result of Protein 1 fitting onto Protein 2
-        # r_1: gemmi.SupResult = gemmi.superpose_positions(coords_2, coords_1, weights)
         # The superposition result of Protein 2 fitting onto Protein 1
-        r_2: gemmi.SupResult = gemmi.superpose_positions(coords_1, coords_2, weights)
-        # slide_window_1.transform_pos_and_adp(r_1.transform)
-        slide_window_2.transform_pos_and_adp(r_2.transform)
-        # print(f"Count = {r_2.count}")
-        # print(f"Center 1 = {r_2.center1}")
-        # print(f"Center 2 = {r_2.center2}")
-        # print(f"RMSD = {r_2.rmsd}")
-        # print(f"Rotation = {r_2.transform.mat}")
-        # print(f"Translation = {r_2.transform.vec}")
+        r: gemmi.SupResult = gemmi.superpose_positions(coords_1, coords_2, weights)
+        slide_window_2.transform_pos_and_adp(r.transform)
         # return r_1, r_2, slide_window_1, slide_window_2
-        return slide_window_2
+        return r, slide_window_2
 
-    def check_ratios(self, transformed_protein, connected_domain: Domain, fixed_domain: Domain):
+    def check_ratios(self, transformed_protein, dynamic_domain: Domain, fixed_domain: Domain):
         """
-        Checks the ratio of internal and external domain movements of each fixed-connected domain pairs.
-        :param transformed_protein: The mass-weight fitted Protein slide window chain onto the other Protein.
-        :param connected_domain: The domain connected to the fixed domain
+        Checks the ratio of external to internal domain movements of each fixed-connected domain pairs.
+        :param transformed_protein: The mass-weight-fitted Protein slide window chain .
+        :param dynamic_domain: The domain connected to the fixed domain
         :param fixed_domain: The fixed domain
         :return:
         """
+        # Superimpose the fixed domain of the original protein onto the mass-weighted fitted protein
         fixed_domain_r: gemmi.SupResult = self.superimpose_domain(transformed_protein, fixed_domain)
-        fixed_domain_num_atoms = fixed_domain.num_residues * len(self.backbone_atoms)
-        # fixed_domain_num_atoms = domains[fixed_domain_id].num_residues
+        fixed_domain_num_atoms = fixed_domain.num_residues * len(self.atoms_to_use)
+
+        # Calculate the internal and external motions
         fixed_domain_int_msf = self.calc_domain_int_msf(fixed_domain_num_atoms, fixed_domain_r)
         fixed_domain_ext_msf = self.calc_domain_ext_msf(fixed_domain, fixed_domain_r)
 
-        connected_domain_r: gemmi.SupResult = self.superimpose_domain(transformed_protein, connected_domain)
-        domain_num_atoms = connected_domain.num_residues * len(self.backbone_atoms)
-        # domain_num_atoms = domains[d].num_residues
-        # connected_domain_int_msf = self.calc_domain_int_msf(domains[d].num_residues, results[d])
-        connected_domain_int_msf = self.calc_domain_int_msf(domain_num_atoms, connected_domain_r)
-        connected_domain_ext_msf = self.calc_domain_ext_msf(connected_domain, connected_domain_r)
+        # Same for the dynamic domain
+        dynamic_domain_r: gemmi.SupResult = self.superimpose_domain(transformed_protein, dynamic_domain)
+        domain_num_atoms = dynamic_domain.num_residues * len(self.atoms_to_use)
+        connected_domain_int_msf = self.calc_domain_int_msf(domain_num_atoms, dynamic_domain_r)
+        connected_domain_ext_msf = self.calc_domain_ext_msf(dynamic_domain, dynamic_domain_r)
+
         ratio = self.calc_ext_int_ratio(fixed_domain_ext_msf, fixed_domain_int_msf, fixed_domain_num_atoms,
                                         connected_domain_ext_msf, connected_domain_int_msf, domain_num_atoms)
-        print(f"Connected domains ({fixed_domain.domain_id} - {connected_domain.domain_id}) ratio = {ratio}")
-        if ratio < self.min_ratio:
+        print(f"Connected domains ({fixed_domain.domain_id} - {dynamic_domain.domain_id}) ratio = {ratio}")
+        if ratio < self.parameters["ratio"]:
             print("Ratio below minimum criteria. Break.")
             return False
         else:
@@ -285,21 +369,21 @@ class Clusterer:
     def superimpose_domain(self, residue_span, domain: Domain, protein=1):
         """
         Superimposes each Protein domain's original residue atoms onto the transformed residue atoms
-        :param domain: Domain object
         :param residue_span: A ResidueSpan object
+        :param domain: Domain object
         :param protein: The ID of the Protein to be used to superimpose onto residue_span
         :return results: A list of gemmi.SupResult objects
         """
         # Get the original chain from the Protein that will be used to superimpose onto the target
         protein: Protein = self.protein_1 if protein == 1 else self.protein_2
-        fitting_chain: gemmi.ResidueSpan = protein.get_slide_window_result()
+        fitting_chain: gemmi.ResidueSpan = protein.get_slide_window_residues()
         # Original residue atoms as the fitting
         fitting_coords = []
         # The transformed residue atoms as the target
         target_coords = []
         for s in domain.segments:
             for si in range(s[0], s[1] + 1):
-                for a in self.backbone_atoms:
+                for a in self.atoms_to_use:
                     fitting_coords.append(fitting_chain[si].sole_atom(a).pos)
                     target_coords.append(residue_span[si].sole_atom(a).pos)
         # Superpose the domain residue atoms onto the target residue atoms
@@ -326,7 +410,7 @@ class Clusterer:
         :return:
         """
         protein: Protein = self.protein_1 if protein_id == 1 else self.protein_2
-        slide_residues = protein.get_slide_window_result()
+        slide_residues = protein.get_slide_window_residues()
         original_chain: gemmi.Chain = gemmi.Chain(protein.chain_param)
         transformed_chain: gemmi.Chain = gemmi.Chain(protein.chain_param)
         for s in domain.segments:
@@ -337,7 +421,7 @@ class Clusterer:
         transformed_polymer.transform_pos_and_adp(r.transform)
         ext_msf = 0
         for r in range(len(original_chain)):
-            for a in self.backbone_atoms:
+            for a in self.atoms_to_use:
                 atom_coords = np.asarray(original_chain[r].sole_atom(a).pos.tolist())
                 transformed_atom_coords = np.asarray(transformed_chain[r].sole_atom(a).pos.tolist())
                 disp_vec = atom_coords - transformed_atom_coords
@@ -347,34 +431,34 @@ class Clusterer:
         return ext_msf
 
     def calc_ext_int_ratio(self, fixed_ext, fixed_int, fixed_num_residues,
-                           connected_ext, connected_int, connected_num_residues):
-        sum_exts = (fixed_ext/fixed_num_residues) + (connected_ext/connected_num_residues)
-        sum_ints = (fixed_int/fixed_num_residues) + (connected_int/connected_num_residues)
+                           dynamic_ext, dynamic_int, dynamic_num_residues):
+        """
+        Calculate the ratio of external to internal domain motions
+        :param fixed_ext: External motion of the fixed domain
+        :param fixed_int: Internal motion of the fixed domain
+        :param fixed_num_residues: Number of residues in the fixed domain
+        :param dynamic_ext: External motion of the dynamic domain
+        :param dynamic_int: Internal motion of the dynamic domain
+        :param dynamic_num_residues: Number of residues in the dynamic domain
+        :return:
+        """
+        sum_exts = (fixed_ext/fixed_num_residues) + (dynamic_ext / dynamic_num_residues)
+        sum_ints = (fixed_int/fixed_num_residues) + (dynamic_int / dynamic_num_residues)
         ratio = math.sqrt(sum_exts/sum_ints)
         return ratio
 
-    def check_domain_sizes(self, domains):
-        return False if any(d.num_residues < self.min_domain_size for d in domains) else True
-
-    def check_cluster_sizes(self, segments: dict):
-        for segments_list in segments.values():
-            res_count = sum([segment[1] + 1 - segment[0] for segment in segments_list])
-            if res_count < self.min_domain_size:
-                return False
-        return True
-
     def print_labels(self):
         print("Printing Labels...")
-        print(f"Length = {len(self.k_means_results)}")
-        curr_element = self.k_means_results[0]
+        print(f"Length = {len(self.k_means_results.labels_)}")
+        curr_element = self.k_means_results.labels_[0]
         list_of_same_labels = []
-        for i in range(len(self.k_means_results)):
-            if self.k_means_results[i] != curr_element:
+        for i in range(len(self.k_means_results.labels_)):
+            if self.k_means_results.labels_[i] != curr_element:
                 print(list_of_same_labels)
-                list_of_same_labels = [self.k_means_results[i]]
-                curr_element = self.k_means_results[i]
+                list_of_same_labels = [self.k_means_results.labels_[i]]
+                curr_element = self.k_means_results.labels_[i]
                 continue
-            list_of_same_labels.append(self.k_means_results[i])
+            list_of_same_labels.append(self.k_means_results.labels_[i])
         print(list_of_same_labels)
 
     def print_segments(self, segments):
@@ -392,7 +476,7 @@ class Clusterer:
                 res_count += i[1] + 1 - i[0]
                 res_total += i[1] + 1 - i[0]
             print(f"Segment Res = {res_count}")
-            if res_count < self.min_domain_size:
+            if res_count < self.parameters["domain"]:
                 total_small_segments += 1
         print("---------------------------------------")
         print(f"Seg total = {seg_count}")
@@ -402,7 +486,7 @@ class Clusterer:
 
     def print_coords(self, transformed_1, transformed_2):
         for i in range(len(transformed_1)):
-            for a in self.backbone_atoms:
+            for a in self.atoms_to_use:
                 print(f"==============================================")
                 print(f"P1 : {self.protein_1.slide_window_residues[i].sole_atom(a).pos} -> {transformed_1[i].sole_atom(a).pos}")
                 print(f"P2 : {self.protein_2.slide_window_residues[i].sole_atom(a).pos} -> {transformed_2[i].sole_atom(a).pos}")
