@@ -1,5 +1,4 @@
 import math
-import sys
 import FileMngr
 import numpy as np
 import gemmi
@@ -10,20 +9,25 @@ from scipy.spatial.transform import Rotation
 
 
 class Engine:
-    def __init__(self, first_pdb: str, second_pdb: str, commands, params):
-        # Default parameters to be used if not given input
-        self.parameters = params
-        self.commands = commands
+    def __init__(self, input_path, output_path, pdb_1, chain_1, pdb_2, chain_2, k_means_n_init=1, k_means_max_iter=500,
+                 window=5, domain=20, ratio=1.0, atoms="backbone"):
+        # The atoms to be used for the program
+        if atoms == "backbone":
+            self.atoms_to_use = ["N", "CA", "C"]
+        elif atoms == "ca":
+            self.atoms_to_use = ["CA"]
+        self.input_path = input_path
+        self.output_path = output_path
+        self.k_means_n_init = k_means_n_init
+        self.k_means_max_iter = k_means_max_iter
+        self.window = window
+        self.domain = domain
+        self.ratio = ratio
         # Initialise proteins
-        self.protein_1: Protein = Protein(first_pdb, self.commands["chain1id"], self.parameters["atoms"])
-        self.protein_2: Protein = Protein(second_pdb, self.commands["chain2id"], self.parameters["atoms"])
+        self.protein_1: Protein = Protein(input_path, pdb_1, chain_1, self.atoms_to_use)
+        self.protein_2: Protein = Protein(input_path, pdb_2, chain_2, self.atoms_to_use)
         # Used to move Protein 2 into the coordinate space of Protein 1
         self.fitted_protein_2 = None
-        # The atoms to be used for the program
-        if self.parameters["atoms"] == "backbone":
-            self.atoms_to_use = ["N", "CA", "C"]
-        elif self.parameters["atoms"] == "ca":
-            self.atoms_to_use = ["CA"]
         # A object containing superimposition information between the whole protein chains
         self.chain_superimpose_result = None
         # List of arrays of gemmi.SupResult objects containing superimposition information between each residue
@@ -45,16 +49,14 @@ class Engine:
 
     def run(self):
         """
-        Runs the entire program. To make it simple, all operations happen based on Protein 1 conforming to Protein 2.
+        Runs the entire program. All operations happen based on Protein 1 conforming to Protein 2.
         :return:
         """
         running = True
-        self.check_sequence_identity()
-        res_ind_1, res_ind_2 = self.get_atoms_indices()
+        res_ind_1, res_ind_2, res_names_1, res_names_2 = self.get_atoms_indices()
+        self.check_sequence_identity(res_names_1, res_names_2)
         self.protein_1.utilised_residues_indices = res_ind_1
         self.protein_2.utilised_residues_indices = res_ind_2
-        self.protein_1.get_backbone_atoms()
-        self.protein_2.get_backbone_atoms()
 
         while running:
             self.get_slide_window_start_end_indices()
@@ -72,17 +74,16 @@ class Engine:
             # Write the rotation vectors to a pdb file
             # FileMngr.write_rotation_vec_to_pdb(self.protein_1.id, self.protein_1.slide_window_residues,
             #                                    self.protein_1.slide_window_residues_indices, self.rotation_vecs)
-            folder_name = f"{self.protein_1.id}_{self.protein_1.chain_param}_{self.protein_2.id}_{self.protein_2.chain_param}"
-            FileMngr.write_rotation_vec_to_pdb(folder_name, self.protein_1, self.rotation_vecs)
+            FileMngr.write_rotation_vec_to_pdb(self.output_path, self.protein_1, self.protein_2.name, self.protein_2.chain_param, self.rotation_vecs)
             # self.print_unit_vectors()
             # Initialise the Clustering class
-            self.clusterer: Clusterer = Clusterer(self.commands, self.parameters, self.rotation_vecs,
-                                                  self.protein_1, self.protein_2, self.atoms_to_use)
+            self.clusterer: Clusterer = Clusterer(self.protein_1, self.protein_2, self.rotation_vecs, self.atoms_to_use,
+                                                  self.k_means_n_init, self.k_means_max_iter, self.window, self.domain, self.ratio)
             # CLuster the rotation vectors to find the domains
             self.clusterer.cluster()
             # print(f"Cluster status = {self.clusterer.clusterer_status}")
             if self.clusterer.clusterer_status == -1:
-                self.parameters["window"] = self.parameters["window"] + 2
+                self.window += 2
                 continue
             screws = self.determine_domains_screw_axis()
             for screw in screws:
@@ -96,47 +97,40 @@ class Engine:
             #                             fixed_domain_id=self.clusterer.fixed_domain)
 
             FileMngr.write_final_output_pdb(
-                folder_name,
+                self.output_path,
                 self.protein_1,
                 self.fitted_protein_2,
-                self.protein_2.chain_param
+                self.protein_2.name,
+                self.protein_2.chain_param,
+                self.protein_2.utilised_residues_indices
             )
-            FileMngr.write_final_output_pml(folder_name, self.protein_1, self.clusterer.domains, self.clusterer.fixed_domain,
-                                            self.bending_residues_indices)
+            FileMngr.write_final_output_pml(self.output_path, self.protein_1, self.protein_2.name,
+                                            self.protein_2.chain_param, self.clusterer.domains,
+                                            self.clusterer.fixed_domain, self.bending_residues_indices, self.window)
             running = False
         return True
 
-    def check_sequence_identity(self):
+    def check_sequence_identity(self, res_names_1, res_names_2):
         """
         Checks the sequence identity of the 2 protein chains.
         :return:
         """
-        chain_1 = []
-        chain_2 = []
-        protein_1_polymer = self.protein_1.get_polymer()
-        protein_2_polymer = self.protein_2.get_polymer()
-        protein_1_size = len(protein_1_polymer)
-        protein_2_size = len(protein_2_polymer)
-        index_1 = 0
-        index_2 = 0
-        while index_1 < protein_1_size or index_2 < protein_2_size:
-            if index_1 < protein_1_size:
-                chain_1.append(protein_1_polymer[index_1].name)
-            if index_2 < protein_2_size:
-                chain_2.append(protein_2_polymer[index_2].name)
-            index_1 += 1
-            index_2 += 1
-        similarity = SequenceMatcher(None, chain_1, chain_2).ratio()
+        correct_hit = 0
+
+        for i in range(len(res_names_1)):
+            if res_names_1[i] == res_names_2[i]:
+                correct_hit += 1
+        similarity = correct_hit / len(res_names_1)
         if similarity < 0.4:
             raise ValueError("Sequence Identity less than 40%")
 
     def get_atoms_indices(self):
         """
-        Get the coordinates of atoms from the proteins. The atoms can only be used if the sequence number of the
+        Get the indices of residues containing backbone atoms from the proteins. The residues can only be used if the sequence number of the
         residue the atom is in of Protein 1 and 2 are the same. This is to account for protein chains of different lengths.
         The sequence number of residues in the PDB format usually start at 1, but there will be polymer residues in
         protein chains that start at a number above 1 or even a negative value. Returns 4 lists.
-        The coordinates of CA atoms and the indices of the residues with utilised CA atoms from proteins 1 and 2.
+        The indices of the residues with utilised CA atoms from proteins 1 and 2, and the residue names.
         The returned lists are the same size.
 
         Extra residues: Atoms in residues with sequence numbers 2 and above will be used
@@ -147,8 +141,10 @@ class Engine:
         Protein 1 Residue Sequence Numbers [ 1 2 3 4 * * * 8 9 ...]
         Protein 2 Residue Sequence Numbers [ 1 2 3 4 5 6 7 8 9 ...]
 
-        :return utilised_res_ind_1:
+        :return utilised_res_ind_1: A list of indices of the residues in the
         :return utilised_res_ind_2:
+        :return res_names_1:
+        :return res_names_2:
         """
         # Get the protein 1 and 2 polymer chains. This excludes residues which are only water.
         protein_1_polymer = self.protein_1.get_polymer()
@@ -159,9 +155,12 @@ class Engine:
         # The indices to iterate the polymers
         index_1 = 0
         index_2 = 0
-        # Stores the index of the atoms in the chains
+        # Stores the index of the residues located in the chains
         utilised_res_ind_1 = []
         utilised_res_ind_2 = []
+        # Stores the names of the residues
+        res_names_1 = []
+        res_names_2 = []
         # Stops iterating at the end of the shorter protein chain
         while index_1 < protein_1_size and index_2 < protein_2_size:
             # Get the sequence id number of the residue in the proteins
@@ -174,25 +173,35 @@ class Engine:
             if res_num_2 < res_num_1:
                 index_2 += 1
                 continue
-            atoms_1 = 0
-            atoms_2 = 0
+            n_found_1, ca_found_1, c_found_1 = False, False, False
+            n_found_2, ca_found_2, c_found_2 = False, False, False
             for a in protein_1_polymer[index_1]:
-                if a.name in self.atoms_to_use:
-                    atoms_1 += 1
-                    if atoms_1 >= 3:
-                        break
+                if a.name == self.atoms_to_use[0] and not n_found_1:
+                    n_found_1 = True
+                elif a.name == self.atoms_to_use[1] and not ca_found_1:
+                    ca_found_1 = True
+                elif a.name == self.atoms_to_use[2] and not c_found_1:
+                    c_found_1 = True
+                if n_found_1 and ca_found_1 and c_found_1:
+                    break
             for a in protein_2_polymer[index_2]:
-                if a.name in self.atoms_to_use:
-                    atoms_2 += 1
-                    if atoms_2 >= 3:
-                        break
-            if atoms_1 >= 3 and atoms_2 >= 3:
+                if a.name == self.atoms_to_use[0] and not n_found_2:
+                    n_found_2 = True
+                elif a.name == self.atoms_to_use[1] and not ca_found_2:
+                    ca_found_2 = True
+                elif a.name == self.atoms_to_use[2] and not c_found_2:
+                    c_found_2 = True
+                if n_found_2 and ca_found_2 and c_found_2:
+                    break
+            if n_found_1 and ca_found_1 and c_found_1 and n_found_2 and ca_found_2 and c_found_2:
                 utilised_res_ind_1.append(index_1)
                 utilised_res_ind_2.append(index_2)
+                res_names_1.append(protein_1_polymer[index_1].name)
+                res_names_2.append(protein_2_polymer[index_2].name)
             index_1 += 1
             index_2 += 1
 
-        return utilised_res_ind_1, utilised_res_ind_2
+        return utilised_res_ind_1, utilised_res_ind_2, res_names_1, res_names_2
 
     def get_slide_window_start_end_indices(self):
         """
@@ -201,7 +210,7 @@ class Engine:
         2 and 428 respectively.
         :return:
         """
-        window_size = self.parameters["window"]
+        window_size = self.window
         # The index of the middle residue in the sliding window
         window_mid_index = start_index = (window_size - 1) // 2
         utilised_res_length = len(self.protein_1.utilised_residues_indices)
@@ -214,13 +223,14 @@ class Engine:
         Superimposes the entire chain of Protein 2 onto Protein 1 using the backbone atoms to get Protein 2 in the same
         coordinate space of Protein 1. Saves the Protein 2 chain after transformation into fitting_protein_2.
         """
-        ptype = self.protein_1.residue_span.check_polymer_type()
+        self.fitted_protein_2 = self.protein_2.get_chain()
+        fitted_protein_polymer = self.fitted_protein_2.get_polymer()
+        ptype = fitted_protein_polymer.check_polymer_type()
 
         self.chain_superimpose_result: gemmi.SupResult = gemmi.calculate_superposition(self.protein_1.get_polymer(),
-                                                                                       self.protein_2.get_polymer(),
+                                                                                       fitted_protein_polymer,
                                                                                        ptype, gemmi.SupSelect.MainChain)
-        self.fitted_protein_2: gemmi.ResidueSpan = self.protein_2.get_polymer()
-        self.fitted_protein_2.transform_pos_and_adp(self.chain_superimpose_result.transform)
+        fitted_protein_polymer.transform_pos_and_adp(self.chain_superimpose_result.transform)
 
     def sliding_window_superimpose_residues(self):
         """
@@ -229,8 +239,9 @@ class Engine:
         :return:
         """
         self.slide_window_superimpose_results = []
-        window_size = self.parameters["window"]
+        window_size = self.window
         fitting_protein_polymer = self.protein_1.get_polymer()  # The protein that will superimpose onto Protein S.
+        target_protein_polymer = self.fitted_protein_2.get_polymer()
         # target_protein_polymer = self.protein_1.get_polymer()
         # For each window, get the residues' backbone atoms and get the superposition results.
         for r in range(len(self.protein_1.utilised_residues_indices) - window_size + 1):  # Number of iterations of the window
@@ -247,8 +258,8 @@ class Engine:
                 # For each utilised atom in the residue,
                 for a in self.atoms_to_use:
                     # Append the atom coordinate to the lists
-                    fitting_protein_polymer_atoms_pos.append(fitting_protein_polymer[fitting_index].sole_atom(a).pos)
-                    target_protein_polymer_atoms_pos.append(self.fitted_protein_2[target_index].sole_atom(a).pos)
+                    fitting_protein_polymer_atoms_pos.append(fitting_protein_polymer[fitting_index][a][0].pos)
+                    target_protein_polymer_atoms_pos.append(target_protein_polymer[target_index][a][0].pos)
                     # target_protein_polymer_atoms_pos.append(target_protein_polymer[i].sole_atom(a).pos)
             # Superimpose the atoms and append the result to list
             self.slide_window_superimpose_results.append(gemmi.superpose_positions(target_protein_polymer_atoms_pos,
@@ -349,11 +360,11 @@ class Engine:
             Assuming the dynamic domains move as a rigid body, the translations for all atoms would be the same. No need
             to use all residues. Just 4 atoms/residues is fine. Either backbone atoms from 4 residues or just 4 atoms.
             """
-            original_atom_coords = np.asarray(original_protein_1_domain_chain[0].sole_atom(self.atoms_to_use[0]).pos.tolist())
-            transformed_atom_coords = np.asarray(transformed_protein_1_domain_chain[0].sole_atom(self.atoms_to_use[0]).pos.tolist())
+            original_atom_coords = np.asarray(original_protein_1_domain_chain[0][self.atoms_to_use[0]][0].pos.tolist())
+            transformed_atom_coords = np.asarray(transformed_protein_1_domain_chain[0][self.atoms_to_use[0]][0].pos.tolist())
             for i in range(1, 4):
-                original_atom_coords = np.vstack((original_atom_coords, np.asarray(original_protein_1_domain_chain[i].sole_atom(self.atoms_to_use[0]).pos.tolist())))
-                transformed_atom_coords = np.vstack((transformed_atom_coords, np.asarray(transformed_protein_1_domain_chain[i].sole_atom(self.atoms_to_use[0]).pos.tolist())))
+                original_atom_coords = np.vstack((original_atom_coords, np.asarray(original_protein_1_domain_chain[i][self.atoms_to_use[0]][0].pos.tolist())))
+                transformed_atom_coords = np.vstack((transformed_atom_coords, np.asarray(transformed_protein_1_domain_chain[i][self.atoms_to_use[0]][0].pos.tolist())))
             original_atom_coords = np.mean(original_atom_coords, axis=0)
             transformed_atom_coords = np.mean(transformed_atom_coords, axis=0)
 
@@ -391,11 +402,12 @@ class Engine:
         fixed_domain = self.clusterer.domains[self.clusterer.fixed_domain]
         fixed_domain_segments = fixed_domain.segments
         print("Fixed segments:", fixed_domain_segments)
-        fixed_domain_rot_vecs = self.rotation_vecs[fixed_domain_segments[0][0]:fixed_domain_segments[0][1]]
+        mid_point = (self.window - 1) // 2
+        fixed_domain_rot_vecs = self.rotation_vecs[fixed_domain_segments[0][0]+mid_point:fixed_domain_segments[0][1]+mid_point]
 
         # Get the rotation vectors of the fixed domain
         for i in range(1, fixed_domain_segments.shape[0]):
-            rot_vecs = self.rotation_vecs[fixed_domain_segments[i][0]:fixed_domain_segments[i][1]]
+            rot_vecs = self.rotation_vecs[fixed_domain_segments[i][0]+mid_point:fixed_domain_segments[i][1]+mid_point]
             fixed_domain_rot_vecs = np.append(fixed_domain_rot_vecs, rot_vecs, axis=0)
 
         # Calculate mean of the fixed domain rotation vectors
@@ -422,10 +434,10 @@ class Engine:
             print(f"Domain {domain.domain_id}")
             dyn_dom_segments = domain.segments
             print(f"Dyn Segments:", dyn_dom_segments)
-            dyn_dom_rot_vecs = self.rotation_vecs[dyn_dom_segments[0][0]:dyn_dom_segments[0][1]]
+            dyn_dom_rot_vecs = self.rotation_vecs[dyn_dom_segments[0][0]+mid_point:dyn_dom_segments[0][1]+mid_point]
 
             for i in range(1, dyn_dom_segments.shape[0]):
-                rot_vecs = self.rotation_vecs[dyn_dom_segments[i][0]:dyn_dom_segments[i][1]]
+                rot_vecs = self.rotation_vecs[dyn_dom_segments[i][0]+mid_point:dyn_dom_segments[i][1]+mid_point]
                 dyn_dom_rot_vecs = np.append(dyn_dom_rot_vecs, rot_vecs, axis=0)
 
             # Just like the fixed domain, calculate the mean, centered rotation vectors, covariance and inverse
@@ -483,7 +495,7 @@ class Engine:
             for segment_ind in fixed_next_is_dyn_ind:
                 segment = fixed_domain.segments[segment_ind]
                 for i in range(segment[1], segment[0] - 1, -1):
-                    centered_vec = self.rotation_vecs[i] - fixed_domain_mean
+                    centered_vec = self.rotation_vecs[i+mid_point] - fixed_domain_mean
                     q_value = centered_vec @ fixed_domain_inv_covar @ centered_vec
                     print(q_value)
                     # print("Backward Fixed Q Value =", q_value)
@@ -498,9 +510,9 @@ class Engine:
             # print("Forward Dyn")
             for segment_ind in dyn_prev_is_fixed_ind:
                 segment = domain.segments[segment_ind]
-                print(segment)
+                # print(segment)
                 for i in range(segment[1], segment[0] + 1):
-                    centered_vec = self.rotation_vecs[i] - dyn_dom_mean
+                    centered_vec = self.rotation_vecs[i+mid_point] - dyn_dom_mean
                     q_value = centered_vec @ dyn_dom_inv_covar @ centered_vec
                     # print("Forward Dyn Q Value =", q_value)
                     # print(i, q_value)
@@ -514,9 +526,9 @@ class Engine:
             # print("Forward Fixed")
             for segment_ind in fixed_prev_is_dyn_ind:
                 segment = fixed_domain.segments[segment_ind]
-                print(segment)
+                # print(segment)
                 for i in range(segment[0], segment[1] + 1):
-                    centered_vec = self.rotation_vecs[i] - fixed_domain_mean
+                    centered_vec = self.rotation_vecs[i+mid_point] - fixed_domain_mean
                     q_value = centered_vec @ fixed_domain_inv_covar @ centered_vec
                     # print("Forward Fixed Q Value =", q_value)
                     # print(i, q_value)
@@ -530,9 +542,9 @@ class Engine:
             # print("Backward Dyn")
             for segment_ind in dyn_next_is_fixed_ind:
                 segment = domain.segments[segment_ind]
-                print(segment)
+                # print(segment)
                 for i in range(segment[1], segment[0] - 1, -1):
-                    centered_vec = self.rotation_vecs[i] - dyn_dom_mean
+                    centered_vec = self.rotation_vecs[i+mid_point] - dyn_dom_mean
                     q_value = centered_vec @ dyn_dom_inv_covar @ centered_vec
                     # print("Backward Dyn Q Value =", q_value)
                     # if q_value < p or q_value > 1-p:
@@ -560,8 +572,8 @@ class Engine:
         for s in self.clusterer.domains[fixed_domain_id].segments:
             for i in range(s[0], s[1] + 1):
                 for a in self.atoms_to_use:
-                    coords_1.append(slide_window_1[i].sole_atom(a).pos)
-                    coords_2.append(slide_window_2[i].sole_atom(a).pos)
+                    coords_1.append(slide_window_1[i][a][0].pos)
+                    coords_2.append(slide_window_2[i][a][0].pos)
 
         r: gemmi.SupResult = gemmi.superpose_positions(coords_1, coords_2)
         return r
@@ -582,11 +594,6 @@ class Engine:
                     for a in res:
                         if a.name in self.atoms_to_use:
                             coords.append(a.pos.tolist())
-
-
-
-
-
 
     def print_chains_superimposed_result(self):
         # A gemmi.SupResult object containing superimposition information between 2 chains
@@ -633,15 +640,16 @@ class Engine:
     #     #     print(f"Rotation Matrix =       {r.transform.mat}")
 
 
-pdb_path = "data/pdb/"
-command_dict = FileMngr.read_command_file()
+files_dict = FileMngr.read_command_file()
 # Read param file to get parameters ( window size, domain size, ratio, etc. )
 param_dict = FileMngr.read_param_file()
-# Concatenate PDB file names with path
-pdb_path_1 = pdb_path + command_dict["filename1"]
-pdb_path_2 = pdb_path + command_dict["filename2"]
 # Initialise Engine object
-engine = Engine(pdb_path_1, pdb_path_2, command_dict, param_dict)
+engine = Engine(input_path=files_dict["input_path"], output_path=files_dict["output_path"],
+                pdb_1=files_dict["filename1"], chain_1=files_dict["chain1id"],
+                pdb_2=files_dict["filename2"], chain_2=files_dict["chain2id"],
+                k_means_n_init=param_dict["k_means_n_init"], k_means_max_iter=param_dict["k_means_max_iter"],
+                window=param_dict["window"], domain=param_dict["domain"],
+                ratio=param_dict["ratio"], atoms=param_dict["atoms"])
 # Run the Engine
 engine.run()
 

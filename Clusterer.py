@@ -10,11 +10,15 @@ from operator import itemgetter
 
 
 class Clusterer:
-    def __init__(self, commands: dict, params: dict, rotation_vectors: np.array, protein_1: Protein, protein_2: Protein, main_atoms):
-        self.commands = commands
-        self.parameters = params
+    def __init__(self, protein_1: Protein, protein_2: Protein, rotation_vectors: np.array, atoms_to_use, k_means_n_init=1,
+                 k_means_max_iter=500, window=5, domain=20, ratio=1.0):
         self.protein_1: Protein = protein_1
         self.protein_2: Protein = protein_2
+        self.k_means_n_init = k_means_n_init
+        self.k_means_max_iter = k_means_max_iter
+        self.window = window
+        self.domain = domain
+        self.ratio = ratio
         # We want a large enough k so that it doesn't get used. If it does manage to get used, good luck. 
         self.max_k = 40
         # Start with 2 clusters to do the clustering
@@ -22,7 +26,7 @@ class Clusterer:
         # The k value that is valid for domain building (Number of clusters)
         self.valid_k = 0
         # The list of atoms to be used
-        self.atoms_to_use = main_atoms
+        self.atoms_to_use = atoms_to_use
         # The number of atoms used in each residue
         self.num_atoms = len(self.atoms_to_use)
         # The rotation vectors of the sliding windows
@@ -85,14 +89,14 @@ class Clusterer:
             self.valid_cluster_found = True
             # Construct the domains from the clusters
             temp_domains, cluster_break = dom_build.domain_builder(self.protein_1, self.protein_2,
-                                                                   temp_segments, self.parameters["domain"])
-            # The first time that a k value produces valid domains for all clusters, set it to true
+                                                                   temp_segments, self.domain)
+
             if cluster_break and self.valid_domains_found:
                 print("All domains found are smaller than minimum domain size. Clustering halted.")
                 self.clusterer_status = 0
                 return
-            elif cluster_break and not self.valid_cluster_found:
-                print("All domains in the cluster are less than minimum domain size")
+            elif cluster_break and not self.valid_domains_found:
+                print("All domains in the cluster are less than minimum domain size. Increasing k by 1")
                 self.current_k += 1
                 continue
             # self.print_domains(temp_domains_1, current_k)
@@ -117,6 +121,7 @@ class Clusterer:
                 self.current_k += 1
                 continue
             else:
+                # The first time that a k value produces valid domains for all clusters, set it to true
                 self.valid_k = self.current_k
                 self.domains = temp_domains
                 self.fixed_domain = temp_fixed_domain_id
@@ -185,8 +190,8 @@ class Clusterer:
         """
         k_means = KMeans(
             n_clusters=self.current_k,
-            n_init=self.parameters["k_means_n_init"],
-            max_iter=self.parameters["k_means_max_iter"],
+            n_init=self.k_means_n_init,
+            max_iter=self.k_means_max_iter,
             init=centroids
         ).fit(self.rotation_vectors)
         clusters = {}
@@ -317,16 +322,16 @@ class Clusterer:
         for s in dynamic_domain.segments:
             for i in range(s[0], s[1] + 1):
                 for a in self.atoms_to_use:
-                    coords_1.append(slide_window_1[i].sole_atom(a).pos)
-                    coords_2.append(slide_window_2[i].sole_atom(a).pos)
+                    coords_1.append(slide_window_1[i][a][0].pos)
+                    coords_2.append(slide_window_2[i][a][0].pos)
                     weights.append(dynamic_weight)
 
         # Same with the fixed domain
         for s in fixed_domain.segments:
             for i in range(s[0], s[1] + 1):
                 for a in self.atoms_to_use:
-                    coords_1.append(slide_window_1[i].sole_atom(a).pos)
-                    coords_2.append(slide_window_2[i].sole_atom(a).pos)
+                    coords_1.append(slide_window_1[i][a][0].pos)
+                    coords_2.append(slide_window_2[i][a][0].pos)
                     weights.append(fixed_weight)
 
         # The superposition result of Protein 2 fitting onto Protein 1
@@ -360,7 +365,7 @@ class Clusterer:
         ratio = self.calc_ext_int_ratio(fixed_domain_ext_msf, fixed_domain_int_msf, fixed_domain_num_atoms,
                                         connected_domain_ext_msf, connected_domain_int_msf, domain_num_atoms)
         print(f"Connected domains ({fixed_domain.domain_id} - {dynamic_domain.domain_id}) ratio = {ratio}")
-        if ratio < self.parameters["ratio"]:
+        if ratio < self.ratio:
             print("Ratio below minimum criteria. Break.")
             return False
         else:
@@ -384,8 +389,8 @@ class Clusterer:
         for s in domain.segments:
             for si in range(s[0], s[1] + 1):
                 for a in self.atoms_to_use:
-                    fitting_coords.append(fitting_chain[si].sole_atom(a).pos)
-                    target_coords.append(residue_span[si].sole_atom(a).pos)
+                    fitting_coords.append(fitting_chain[si][a][0].pos)
+                    target_coords.append(residue_span[si][a][0].pos)
         # Superpose the domain residue atoms onto the target residue atoms
         r = gemmi.superpose_positions(target_coords, fitting_coords)
         return r
@@ -422,8 +427,8 @@ class Clusterer:
         ext_msf = 0
         for r in range(len(original_chain)):
             for a in self.atoms_to_use:
-                atom_coords = np.asarray(original_chain[r].sole_atom(a).pos.tolist())
-                transformed_atom_coords = np.asarray(transformed_chain[r].sole_atom(a).pos.tolist())
+                atom_coords = np.asarray(original_chain[r][a][0].pos.tolist())
+                transformed_atom_coords = np.asarray(transformed_chain[r][a][0].pos.tolist())
                 disp_vec = atom_coords - transformed_atom_coords
                 sum_disp = np.sum(disp_vec ** 2)
                 ext_msf += sum_disp
@@ -476,7 +481,7 @@ class Clusterer:
                 res_count += i[1] + 1 - i[0]
                 res_total += i[1] + 1 - i[0]
             print(f"Segment Res = {res_count}")
-            if res_count < self.parameters["domain"]:
+            if res_count < self.domain:
                 total_small_segments += 1
         print("---------------------------------------")
         print(f"Seg total = {seg_count}")
@@ -488,7 +493,7 @@ class Clusterer:
         for i in range(len(transformed_1)):
             for a in self.atoms_to_use:
                 print(f"==============================================")
-                print(f"P1 : {self.protein_1.slide_window_residues[i].sole_atom(a).pos} -> {transformed_1[i].sole_atom(a).pos}")
-                print(f"P2 : {self.protein_2.slide_window_residues[i].sole_atom(a).pos} -> {transformed_2[i].sole_atom(a).pos}")
+                print(f"P1 : {self.protein_1.slide_window_residues[i][a][0].pos} -> {transformed_1[i][a][0].pos}")
+                print(f"P2 : {self.protein_2.slide_window_residues[i][a][0].pos} -> {transformed_2[i][a][0].pos}")
                 print(f"==============================================")
 

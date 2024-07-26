@@ -1,4 +1,3 @@
-import sys
 import gemmi
 import numpy as np
 """
@@ -8,31 +7,15 @@ Structure -> Model -> Chain -> Residue -> Atom
 
 
 class Protein:
-    def __init__(self, file_path: str, chain: str = "A", atom_type: str = "backbone"):
-        self.file_path = file_path
-        self.structure: gemmi.Structure = gemmi.read_structure(file_path, format=gemmi.CoorFormat.Pdb)
-        self.id: str = self.structure.name  # ID of the protein structure
+    def __init__(self, input_path, protein_name, chain, atoms_to_use):
+        self.input_path = input_path
+        self.name = protein_name
+        self.file_path = f"{input_path}/{self.name}.pdb"
         self.chain_param: str = chain  # The chain specified in parameter input for the program
-        if atom_type == "backbone":
-            self.atoms_to_use = ["N", "CA", "C"]
-        elif atom_type == "ca":
-            self.atoms_to_use = ["CA"]
-        # There is usually only one model in the structure
-        self.chain: gemmi.Chain = self.structure[0][self.chain_param]
-        self.residue_span: gemmi.ResidueSpan = self.chain.get_polymer()
+        self.atoms_to_use = atoms_to_use
+        # The index of the residues in the ResidueSpan
         self.utilised_residues_indices = []
-        self.chain_atoms = None
         self.slide_window_residues_indices = None
-
-    def get_backbone_atoms(self):
-        """
-        Gets the backbone atoms of each residue [(N, CA, C) or (CA only)]
-        :return: A 2D array of residue atoms
-        """
-        atoms = []
-        for i in self.utilised_residues_indices:
-            atoms.append([self.residue_span[i].sole_atom(a) for a in self.atoms_to_use])
-        self.chain_atoms = np.asarray(atoms)
 
     def get_structure(self):
         return gemmi.read_structure(self.file_path, format=gemmi.CoorFormat.Pdb)
@@ -70,6 +53,26 @@ class Protein:
         return slide_window_chain.get_polymer()
 
     def print_chain(self):
-        print(f"{self.id}({self.chain_param}) - {self.chain_atoms.shape}")
-        print(f"{self.id}({self.chain_param}) - {self.chain_atoms}")
+        atoms = []
+        res_span = self.get_polymer()
+        for i in self.utilised_residues_indices:
+            has_N = False
+            has_CA = False
+            has_C = False
+            res_atoms = []
+
+            for atom in res_span[i]:
+                if atom.name == "N" and not has_N:
+                    res_atoms.append(atom)
+                elif atom.name == "CA" and not has_CA:
+                    res_atoms.append(atom)
+                elif atom.name == "C" and not has_C:
+                    res_atoms.append(atom)
+                if len(res_atoms) >= 3:
+                    break
+
+        backbone_atoms = np.asarray(atoms)
+        print(backbone_atoms)
+        print(f"{self.name}({self.chain_param}) - {backbone_atoms.shape}")
+        print(f"{self.name}({self.chain_param}) - {backbone_atoms}")
 
