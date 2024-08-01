@@ -91,11 +91,6 @@ class Engine:
                 print(screw)
             self.determine_bending_residues()
 
-            # FileMngr.write_w5_info_file(self.protein_1.id, self.protein_2.id,
-            #                             param=self.parameters,
-            #                             domains=self.clusterer.domains,
-            #                             fixed_domain_id=self.clusterer.fixed_domain)
-
             FileMngr.write_final_output_pdb(
                 self.output_path,
                 self.protein_1,
@@ -107,6 +102,9 @@ class Engine:
             FileMngr.write_final_output_pml(self.output_path, self.protein_1, self.protein_2.name,
                                             self.protein_2.chain_param, self.clusterer.domains,
                                             self.clusterer.fixed_domain, self.bending_residues_indices, self.window)
+            FileMngr.write_w5_info_file(self.output_path, self.protein_1.name, self.protein_1.chain_param,
+                                        self.protein_2.name, self.protein_2.chain_param, self.window, self.domain,
+                                        self.ratio, self.atoms_to_use, self.clusterer.domains, self.clusterer.fixed_domain)
             running = False
         return True
 
@@ -371,8 +369,8 @@ class Engine:
             # Calculate the displacement vector
             disp_vec = transformed_atom_coords - original_atom_coords
 
-            component_value = np.sum(disp_vec * unit_rot_vec)
-            parallel_translation = unit_rot_vec * component_value
+            translation_component_value = np.sum(disp_vec * unit_rot_vec)
+            parallel_translation = unit_rot_vec * translation_component_value
             # Calculate difference between displacement and parallel translations to get rotational parts
             rotational_part = disp_vec - parallel_translation
             # Calculate the amplitude of rotation
@@ -389,6 +387,8 @@ class Engine:
             domain.rot_angle = rot_angle
             domain.disp_vec = disp_vec
             domain.point_on_axis = point_on_axis
+            domain.screw_axis = unit_rot_vec
+            domain.translation = translation_component_value
             domain_screw_axes.append((unit_rot_vec, rot_angle, point_on_axis))
 
         return domain_screw_axes
@@ -460,7 +460,7 @@ class Engine:
 
             # Get the indices of the fixed domain segments that connects the fixed domain to the dynamic domain.
             # 1D Array of booleans where True means next index after fixed domain segment is dyn dom segment.
-            fixed_next_is_dyn = np.in1d(fixed_domain.segments[:, 1], dyn_dom_prev_indices)
+            fixed_next_is_dyn = np.isin(fixed_domain.segments[:, 1], dyn_dom_prev_indices)
             fixed_next_is_dyn_ind = np.where(fixed_next_is_dyn)[0]
             # 1D Array of booleans where True means previous index before fixed domain segment is dyn dom segment.
             fixed_prev_is_dyn = np.in1d(fixed_domain.segments[:, 0], dyn_dom_next_indices)
@@ -557,6 +557,7 @@ class Engine:
 
             bend_res_set = list(bend_res_set)
             bend_res_set.sort()
+            domain.bend_res = bend_res_set
             self.bending_residues_indices[domain.domain_id] = bend_res_set
 
     def get_fixed_domain_transformations(self):

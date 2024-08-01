@@ -13,10 +13,14 @@ class Domain:
         self.num_residues = 0
         self.count_residues()
         self.fit_result = None
+        self.ratio = 0
         self.rot_angle = None
+        self.screw_axis = None
+        self.translation = 0
         self.disp_vec = None
         self.point_on_axis = None
         self.rmsd = 0
+        self.bend_res = {}
 
     def __str__(self):
         return f"\nDomain ID : {self.domain_id} \n" \

@@ -271,10 +271,11 @@ def write_final_output_pml(output_path, protein_1, protein_2_name, protein_2_cha
         print(e)
 
 
-def write_w5_info_file(protein_1_name: str, chain_1, protein_2_name: str, chain_2, window, domain_size, ratio, atoms,
+def write_w5_info_file(output_path, protein_1_name: str, chain_1, protein_2_name: str, chain_2, window, domain_size, ratio, atoms,
                        domains: list, fixed_domain_id: int):
     try:
-        fw = open(f"output/w5_info/{protein_1_name}{chain_1}_{protein_2_name}{chain_2}.w5_info", "w")
+        protein_folder = f"{protein_1_name}_{chain_1}_{protein_2_name}_{chain_2}"
+        fw = open(f"{output_path}/{protein_folder}/{protein_folder}.w5_info", "w")
         fw.write("DynDom Python Version 1.0\n")
         fw.write(f"{protein_1_name}{chain_1}_{protein_2_name}{chain_2}.w5\n")
         fw.write(f"file name of conformer 1: {protein_1_name}.pdb\n")
@@ -287,46 +288,44 @@ def write_w5_info_file(protein_1_name: str, chain_1, protein_2_name: str, chain_
         fw.write(f"atoms to use: {atoms}\n")
         fw.write(f"THERE ARE {len(domains)} DOMAINS\n")
         fw.write("================================================================================\n")
-        for domain in domains:
-            if domain.domain_id == fixed_domain_id:
-                fw.write("FIXED DOMAIN\n")
-                fw.write(f"DOMAIN NUMBER: \t {fixed_domain_id} (coloured yellow for rasmol)\n")
-                residue_str = ""
-                for s in range(domain.segments.shape[0]):
-                    if s == domain.segments.shape[0] - 1:
-                        residue_str += str(domain.segments[s][0]) + " - " + str(domain.segments[s][1])
-                    else:
-                        residue_str += str(domain.segments[s][0]) + " - " + str(domain.segments[s][1]) + " , "
-                fw.write(f"RESIDUE NUMBERS: \t{residue_str}\n")
-                fw.write(f"SIZE: \t{domain.num_residues}\n")
-                fw.write(f"BACKBONE RMSD ON THIS DOMAIN: \t{round(domain.rmsd, 3)}A\n")
-                break
+        domain_colours = ["blue", "red", "yellow", "pink", "cyan"]
+        fixed_domain = domains[fixed_domain_id]
+        fw.write("FIXED DOMAIN\n")
+        fw.write(f"DOMAIN NUMBER: \t {fixed_domain_id} (coloured {domain_colours[0]} for rasmol)\n")
+        residue_str = ""
+        for s in range(fixed_domain.segments.shape[0]):
+            if s == 0:
+                residue_str = f"{str(fixed_domain.segments[s][0])} - {str(fixed_domain.segments[s][1])}"
+            else:
+                residue_str = residue_str + f", {str(fixed_domain.segments[s][0])} - {str(fixed_domain.segments[s][1])}"
+        fw.write(f"RESIDUE NUMBERS: \t{residue_str}\n")
+        fw.write(f"SIZE: \t{fixed_domain.num_residues}\n")
+        fw.write(f"BACKBONE RMSD ON THIS DOMAIN: \t{round(fixed_domain.rmsd, 3)}A\n")
 
         domain_count = 1
         for domain in domains:
             if domain.domain_id != fixed_domain_id:
                 fw.write("------------------------------------------------------------------------------\n")
                 fw.write(f"MOVING DOMAIN (RELATIVE TO FIXED DOMAIN),  PAIR {domain_count}\n")
-                domain_count += 1
-                colour_str = ""
-                if domain_count == 1:
-                    colour_str = "blue"
-                elif domain_count == 2:
-                    colour_str = "green"
-                elif domain_count == 3:
-                    colour_str = "red"
-                else:
-                    colour_str = "purple"
-                fw.write(f"DOMAIN NUMBER: \t {domain.domain_id} (coloured {colour_str} for rasmol)\n")
+                fw.write(f"DOMAIN NUMBER: \t {domain.domain_id} (coloured {domain_colours[domain_count]} for rasmol)\n")
                 residue_str = ""
                 for s in range(domain.segments.shape[0]):
-                    if s == domain.segments.shape[0] - 1:
-                        residue_str += str(domain.segments[s][0]) + " - " + str(domain.segments[s][1])
+                    if s == 0:
+                        residue_str = f"{str(domain.segments[s][0])} - {str(domain.segments[s][1])}"
                     else:
-                        residue_str += str(domain.segments[s][0]) + " - " + str(domain.segments[s][1]) + " , "
+                        residue_str = residue_str + f", {str(domain.segments[s][0])} - {str(domain.segments[s][1])}"
                 fw.write(f"RESIDUE NUMBERS: \t{residue_str}\n")
                 fw.write(f"SIZE: \t{domain.num_residues}\n")
                 fw.write(f"BACKBONE RMSD ON THIS DOMAIN: \t{round(domain.rmsd, 3)}A\n")
+                fw.write(f"RATIO OF INTERDOMAIN TO INTRADOMAIN DISPLACEMENT: \t{round(domain.ratio, 3)}\n")
+                fw.write(f"ANGLE OF ROTATION: \t{round(domain.rot_angle, 3)} DEGREES\n")
+                fw.write(f"TRANSLATION ALONG AXIS:\t{round(domain.translation, 3)} A\n")
+                fw.write(f"SCREW AXIS: \t{round(domain.screw_axis[0], 3)} \t{round(domain.screw_axis[1], 3)} \t{round(domain.screw_axis[2], 3)}\n")
+                fw.write(f"POINT ON AXIS: \t{round(domain.point_on_axis[0], 3)} \t{round(domain.point_on_axis[1], 3)} \t{round(domain.point_on_axis[2], 3)}\n")
+                groups = group_continuous_regions(domain.bend_res)
+                for group in groups:
+                    fw.write(f"BENDING RESIDUES: \t{group[0]} - {group[-1]}\n")
+                domain_count += 1
 
     except Exception as e:
         print(e)

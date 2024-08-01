@@ -369,6 +369,7 @@ class Clusterer:
             print("Ratio below minimum criteria. Break.")
             return False
         else:
+            dynamic_domain.ratio = ratio
             return True
 
     def superimpose_domain(self, residue_span, domain: Domain, protein=1):
